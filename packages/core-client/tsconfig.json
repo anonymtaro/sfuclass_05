@@ -1,0 +1,32 @@
+{
+  // Standalone until packages/config-presets/ lands; then this becomes
+  // { "extends": "@classroom/config-presets/tsconfig/react-library.json", ... }
+  // and only outDir, rootDir and include stay here.
+  "compilerOptions": {
+    "target": "ES2023",
+    // DOM is needed for fetch, AbortSignal and the structural media types.
+    // React Native provides its own versions of all three at runtime; the
+    // adapters are what keep the differences out of this package.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "jsx": "react-jsx",
+
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src",
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["dist", "node_modules", "**/*.test.ts"]
+}

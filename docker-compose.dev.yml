@@ -1,0 +1,360 @@
+# =============================================================================
+# classroom-app · development environment
+# =============================================================================
+# Default (no profile) starts backing services only, so the application itself
+# can run natively with `npm run dev` and keep hot reload fast:
+#
+#   npm run dev:infra            postgres · redis · minio · mail · otel
+#   npm run dev:infra:full       + opensearch (search) + clamav (av)
+#   npm run dev:all              everything, application included (profile app)
+#
+# Profiles
+#   search   OpenSearch — heavy, only needed when SEARCH_ENABLED=true
+#   av       ClamAV     — only needed when ANTIVIRUS_MODE=clamav
+#   app      api · realtime · worker · sfu running inside Docker
+#
+# This file never runs in production. Production is ECS; the single-node
+# fallback is docker-compose.prod.yml.
+# =============================================================================
+
+name: classroom-dev
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: '10m'
+      max-file: '3'
+
+x-app-base: &app-base
+  <<: *logging
+  env_file: [.env]
+  restart: unless-stopped
+  networks: [classroom]
+  volumes:
+    - ./server:/app/server
+    - ./packages:/app/packages
+    - /app/node_modules
+    - /app/server/node_modules
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — mirrors the RDS major version
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:17.5-alpine
+    <<: *logging
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-classroom}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-classroom}
+      POSTGRES_DB: ${POSTGRES_DB:-classroom}
+      # Deterministic collation, so ORDER BY behaves like it does on RDS.
+      POSTGRES_INITDB_ARGS: '--locale-provider=icu --icu-locale=en-US --encoding=UTF8'
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - log_min_duration_statement=500
+    ports: ['5432:5432']
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-classroom} -d ${POSTGRES_DB:-classroom}']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks: [classroom]
+
+  # ---------------------------------------------------------------------------
+  # Redis — entitlements, seat reservation, presence, unread counters, queues
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7.4-alpine
+    <<: *logging
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - 'yes'
+      - --maxmemory
+      - 512mb
+      # Queues must never be evicted; noeviction surfaces memory pressure as an
+      # error instead of silently dropping a job, exactly as ElastiCache is set.
+      - --maxmemory-policy
+      - noeviction
+    ports: ['6379:6379']
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks: [classroom]
+
+  # ---------------------------------------------------------------------------
+  # MinIO — stands in for S3 (raw · quarantine · delivery)
+  # ---------------------------------------------------------------------------
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    <<: *logging
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-classroom-dev}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-classroom-dev-secret}
+    ports:
+      - '9000:9000' # S3 API
+      - '9001:9001' # console
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks: [classroom]
+
+  # Creates the three buckets and applies the same versioning and lifecycle
+  # posture media.tf applies in AWS. Runs once and exits.
+  minio-init:
+    image: quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z
+    <<: *logging
+    depends_on:
+      minio: { condition: service_healthy }
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-classroom-dev}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-classroom-dev-secret}
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
+      mc mb --ignore-existing local/classroom-dev-raw &&
+      mc mb --ignore-existing local/classroom-dev-quarantine &&
+      mc mb --ignore-existing local/classroom-dev-delivery &&
+      mc version enable local/classroom-dev-delivery &&
+      mc anonymous set none local/classroom-dev-raw &&
+      mc anonymous set none local/classroom-dev-quarantine &&
+      mc anonymous set download local/classroom-dev-delivery &&
+      echo 'buckets ready'
+      "
+    restart: 'no'
+    networks: [classroom]
+
+  # ---------------------------------------------------------------------------
+  # Mail catcher — every outbound mail lands in the UI on :8025, none is sent.
+  # Image is Mailpit, the maintained successor to MailHog; the service keeps the
+  # name used across the architecture documents.
+  # ---------------------------------------------------------------------------
+  mailhog:
+    image: axllent/mailpit:v1.24
+    <<: *logging
+    restart: unless-stopped
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+      MP_MAX_MESSAGES: 2000
+    ports:
+      - '1025:1025' # SMTP
+      - '8025:8025' # web UI
+    healthcheck:
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    networks: [classroom]
+
+  # ---------------------------------------------------------------------------
+  # OpenTelemetry collector — traces and metrics land here instead of X-Ray
+  # ---------------------------------------------------------------------------
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.126.0
+    <<: *logging
+    restart: unless-stopped
+    command: ['--config=/etc/otel/collector.dev.yaml']
+    volumes:
+      - ./ops/otel/collector.dev.yaml:/etc/otel/collector.dev.yaml:ro
+    ports:
+      - '4317:4317' # OTLP gRPC
+      - '4318:4318' # OTLP HTTP
+      - '13133:13133' # health
+    healthcheck:
+      test: ['CMD', '/otelcol-contrib', 'validate', '--config=/etc/otel/collector.dev.yaml']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks: [classroom]
+
+  # ---------------------------------------------------------------------------
+  # OpenSearch — community, course and chat search   (profile: search)
+  # ---------------------------------------------------------------------------
+  opensearch:
+    image: opensearchproject/opensearch:2.19.1
+    profiles: [search]
+    <<: *logging
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      bootstrap.memory_lock: 'true'
+      OPENSEARCH_JAVA_OPTS: '-Xms512m -Xmx512m'
+      # Development only. The managed cluster runs with security enabled.
+      DISABLE_SECURITY_PLUGIN: 'true'
+      DISABLE_INSTALL_DEMO_CONFIG: 'true'
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    ports: ['9200:9200']
+    volumes:
+      - opensearchdata:/usr/share/opensearch/data
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -sf http://localhost:9200/_cluster/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+    networks: [classroom]
+
+  # ---------------------------------------------------------------------------
+  # ClamAV — the quarantine gate for uploads and chat attachments  (profile: av)
+  # ---------------------------------------------------------------------------
+  clamav:
+    image: clamav/clamav:1.4-slim
+    profiles: [av]
+    <<: *logging
+    restart: unless-stopped
+    ports: ['3310:3310']
+    volumes:
+      - clamavdb:/var/lib/clamav
+    healthcheck:
+      test: ['CMD-SHELL', 'clamdcheck || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    networks: [classroom]
+
+  # ===========================================================================
+  # Application services   (profile: app)
+  # Same Dockerfiles as production, run with a watcher and the source mounted.
+  # ===========================================================================
+
+  api:
+    <<: *app-base
+    profiles: [app]
+    build:
+      context: .
+      dockerfile: server/Dockerfile.api
+      target: development
+    command: ['node', '--watch', 'server/src/server.js']
+    environment:
+      SERVICE_NAME: classroom-api
+      DATABASE_URL: postgres://${POSTGRES_USER:-classroom}:${POSTGRES_PASSWORD:-classroom}@postgres:5432/${POSTGRES_DB:-classroom}
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      SMTP_HOST: mailhog
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    ports: ['4000:4000']
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD-SHELL', 'node -e "fetch(\"http://localhost:4000/healthz\").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  realtime:
+    <<: *app-base
+    profiles: [app]
+    build:
+      context: .
+      dockerfile: server/Dockerfile.api
+      target: development
+    command: ['node', '--watch', 'server/src/realtime/collabServer.js']
+    environment:
+      SERVICE_NAME: classroom-realtime
+      PORT: 4100
+      DATABASE_URL: postgres://${POSTGRES_USER:-classroom}:${POSTGRES_PASSWORD:-classroom}@postgres:5432/${POSTGRES_DB:-classroom}
+      REDIS_URL: redis://redis:6379
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    ports: ['4100:4100']
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  worker:
+    <<: *app-base
+    profiles: [app]
+    build:
+      context: .
+      dockerfile: server/Dockerfile.worker
+      target: development
+    command: ['node', '--watch', 'server/src/worker.js']
+    environment:
+      SERVICE_NAME: classroom-worker
+      DATABASE_URL: postgres://${POSTGRES_USER:-classroom}:${POSTGRES_PASSWORD:-classroom}@postgres:5432/${POSTGRES_DB:-classroom}
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      SMTP_HOST: mailhog
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+
+  # The SFU needs a fixed UDP range reachable from the browser. Host networking
+  # is the only arrangement that behaves like production; on macOS and Windows
+  # run the SFU natively with `npm run dev -w @classroom/server` instead.
+  sfu:
+    <<: *logging
+    profiles: [app]
+    build:
+      context: .
+      dockerfile: server/Dockerfile.sfu
+      target: development
+    command: ['node', '--watch', 'server/src/mediasoup/index.js']
+    env_file: [.env]
+    environment:
+      SERVICE_NAME: classroom-sfu
+      SFU_HTTP_PORT: 4200
+      ANNOUNCED_IP: ${ANNOUNCED_IP:-127.0.0.1}
+      REDIS_URL: redis://127.0.0.1:6379
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://127.0.0.1:4318
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./server:/app/server
+      - ./packages:/app/packages
+      - /app/node_modules
+    depends_on:
+      redis: { condition: service_healthy }
+
+  # One-shot migration runner:  docker compose -f docker-compose.dev.yml run --rm migrate
+  migrate:
+    <<: *app-base
+    profiles: [tools]
+    build:
+      context: .
+      dockerfile: server/Dockerfile.api
+      target: development
+    command: ['node', 'server/src/db/migrate.js', 'up']
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-classroom}:${POSTGRES_PASSWORD:-classroom}@postgres:5432/${POSTGRES_DB:-classroom}
+    restart: 'no'
+    depends_on:
+      postgres: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+  opensearchdata:
+  clamavdb:
+
+networks:
+  classroom:
+    driver: bridge

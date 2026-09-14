@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "display": "Classroom library",
+  "_comment": [
+    "For packages consumed as built JavaScript: contracts, ui-tokens.",
+    "The server is plain ESM JavaScript, so these packages must emit real .js",
+    "alongside their .d.ts — nothing here is consumed as TypeScript source."
+  ],
+  "extends": "./base.json",
+  "compilerOptions": {
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "composite": false
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", ".turbo", "**/*.test.ts"]
+}

@@ -1,0 +1,182 @@
+# =============================================================================
+# CI · every push and every pull request
+# =============================================================================
+# Nothing here touches AWS and nothing here needs a secret. This workflow answers
+# one question: is the repository internally consistent? Deployment concerns live
+# in build-images.yml and the deploy-* workflows.
+#
+# Gates, in the order they fail fastest:
+#   1. formatting and lint
+#   2. types across every workspace
+#   3. env schema vs .env.example        (config/env.js is the source of truth)
+#   4. unit tests against real Postgres and Redis service containers
+#   5. contract tests against packages/contracts
+#   6. dependency audit
+# =============================================================================
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+
+# A new push supersedes an in-flight run on the same branch. main is never
+# cancelled, because build-images.yml consumes its result.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+env:
+  HUSKY: 0
+  TURBO_TELEMETRY_DISABLED: 1
+  NEXT_TELEMETRY_DISABLED: 1
+  # Remote cache. Both are optional; turbo falls back to the local cache.
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  static:
+    name: format · lint · types
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2 # turbo needs a base ref for affected-package filtering
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # mediasoup compiles a native worker on install; caching it saves ~3 min.
+      - name: Restore mediasoup build cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/mediasoup
+          key: mediasoup-${{ runner.os }}-${{ hashFiles('server/package.json') }}
+
+      - name: Install
+        run: npm ci
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Catches the most common drift in this repository: a variable added to
+      # config/env.js but never documented, or documented but never validated.
+      - name: Env schema matches .env.example
+        run: node ops/scripts/check-env-schema.js
+
+      - name: Workflow files are valid
+        uses: raven-actions/actionlint@v2
+        with:
+          fail-on-error: true
+
+  # ---------------------------------------------------------------------------
+  test:
+    name: unit · integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17.5-alpine
+        env:
+          POSTGRES_USER: classroom
+          POSTGRES_PASSWORD: classroom
+          POSTGRES_DB: classroom_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U classroom -d classroom_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+      redis:
+        image: redis:7.4-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 12
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgres://classroom:classroom@localhost:5432/classroom_test
+      REDIS_URL: redis://localhost:6379
+      REDIS_PREFIX: classroom:ci
+      PGSSLMODE: disable
+      # Values the zod schema demands but that no test actually exercises.
+      COOKIE_SECRET: ci-only-cookie-secret
+      APP_URL: http://localhost:5173
+      API_URL: http://localhost:4000
+      ALLOWED_ORIGINS: http://localhost:5173
+      LOG_LEVEL: warn
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Restore mediasoup build cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/mediasoup
+          key: mediasoup-${{ runner.os }}-${{ hashFiles('server/package.json') }}
+
+      - name: Install
+        run: npm ci
+
+      # Ephemeral JWT pair, so auth-dependent tests exercise the real code path
+      # instead of a mock. Never leaves the runner.
+      - name: Generate test JWT key pair
+        run: node ops/scripts/generate-jwt-keys.js --env-file "$GITHUB_ENV"
+
+      - name: Build workspaces
+        run: npm run build
+
+      # The same command the deploy workflow runs, so a broken migration fails
+      # here rather than in front of production traffic.
+      - name: Apply migrations
+        run: npm run db:migrate
+
+      - name: Unit and integration tests
+        run: npm test
+
+      - name: Contract tests
+        run: npm run test:contract
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: '**/coverage/**'
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  audit:
+    name: dependency audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      # Fails on high and critical only. Anything lower is a Renovate pull
+      # request, not a broken build.
+      - name: npm audit
+        run: npm audit --audit-level=high

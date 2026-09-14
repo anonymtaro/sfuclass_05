@@ -1,0 +1,253 @@
+# =============================================================================
+# Deploy SFU · replace nodes without cutting a live lesson
+# =============================================================================
+# The SFU is the one stateful service in the platform. A running task holds
+# rooms, and a room holds people who are mid-sentence. A rolling ECS deployment
+# would simply stop tasks, so this workflow does the replacement by hand:
+#
+#   1. add capacity first          new tasks on the new revision, old ones untouched
+#   2. mark old nodes draining     an SSM parameter per node; lifecycle/drainSfu.js
+#                                  polls it, stops accepting rooms, keeps serving
+#                                  the rooms it already has
+#   3. wait for the rooms to end   ActiveRooms metric per node, until 0 or timeout
+#   4. stop the drained tasks      then return the service to its normal size
+#
+# The drain flag is an SSM parameter rather than an HTTP call because the deploy
+# role already has SSM permission, no admin endpoint has to be exposed, and the
+# flag survives a task restart mid-drain.
+#
+#   /classroom/{env}/sfu/{nodeId}/state = draining | active
+#
+# SFU_DRAIN_TIMEOUT_SEC in .env.example is the same number as the timeout below.
+# Scheduled lessons should be checked before running this in production; the
+# drain is patient, but it is not infinite.
+# =============================================================================
+
+name: deploy-sfu
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      release_sha:
+        type: string
+        required: true
+      drain_timeout_sec:
+        type: number
+        required: false
+        default: 1800
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [staging, production]
+        required: true
+      release_sha:
+        description: Commit SHA to deploy
+        type: string
+        required: true
+      drain_timeout_sec:
+        description: Seconds to wait for rooms to end before forcing the swap
+        type: number
+        required: false
+        default: 1800
+
+concurrency:
+  group: deploy-sfu-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: replace SFU nodes · ${{ inputs.environment }}
+    runs-on: ubuntu-24.04
+    environment:
+      name: ${{ inputs.environment }}
+    # Long by design: the job spends most of its life waiting for lessons to end.
+    timeout-minutes: 120
+
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      CLUSTER: ${{ vars.ECS_CLUSTER }}
+      ENV: ${{ inputs.environment }}
+      SHA: ${{ inputs.release_sha }}
+      SERVICE: classroom-${{ inputs.environment }}-sfu
+      DRAIN_TIMEOUT: ${{ inputs.drain_timeout_sec }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_sha }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/${{ vars.AWS_DEPLOY_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gha-deploy-sfu-${{ inputs.environment }}
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Resolve and verify image
+        id: image
+        run: |
+          set -euo pipefail
+          digest=$(aws ecr describe-images --repository-name classroom-sfu \
+            --image-ids imageTag="${SHA}" \
+            --query 'imageDetails[0].imageDigest' --output text)
+          [ "$digest" != "None" ] || { echo "::error::no classroom-sfu:${SHA} in ECR"; exit 1; }
+          echo "ref=${{ steps.ecr.outputs.registry }}/classroom-sfu@${digest}" >> "$GITHUB_OUTPUT"
+
+      - uses: sigstore/cosign-installer@v3
+      - name: Verify signature
+        run: |
+          cosign verify "${{ steps.image.outputs.ref }}" \
+            --certificate-identity-regexp "^https://github.com/${{ github.repository }}/" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" > /dev/null
+
+      # -----------------------------------------------------------------------
+      - name: Snapshot the current fleet
+        id: fleet
+        run: |
+          set -euo pipefail
+          old_tasks=$(aws ecs list-tasks --cluster "$CLUSTER" --service-name "$SERVICE" \
+            --desired-status RUNNING --query 'taskArns' --output json)
+          desired=$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
+            --query 'services[0].desiredCount' --output text)
+          previous=$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
+            --query 'services[0].taskDefinition' --output text)
+
+          echo "old_tasks=$(echo "$old_tasks" | jq -c .)" >> "$GITHUB_OUTPUT"
+          echo "desired=${desired}" >> "$GITHUB_OUTPUT"
+          echo "previous=${previous}" >> "$GITHUB_OUTPUT"
+          echo "running nodes: $(echo "$old_tasks" | jq 'length'), desired: ${desired}"
+
+      - name: Register new task definition
+        id: taskdef
+        run: |
+          set -euo pipefail
+          aws ecs describe-task-definition --task-definition "classroom-${ENV}-sfu" \
+            --query 'taskDefinition' --output json \
+          | jq --arg img '${{ steps.image.outputs.ref }}' --arg sha "$SHA" '
+              .containerDefinitions |= map(
+                .image = $img
+                | .environment = ((.environment // [])
+                    | map(select(.name != "RELEASE_SHA"))
+                    + [{name:"RELEASE_SHA", value:$sha}])
+              )
+              | del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
+                    .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)
+            ' > taskdef-sfu.json
+          arn=$(aws ecs register-task-definition --cli-input-json file://taskdef-sfu.json \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "arn=${arn}" >> "$GITHUB_OUTPUT"
+
+      # -----------------------------------------------------------------------
+      # Capacity first. Doubling the desired count starts new tasks on the new
+      # revision while every existing room keeps running on the old ones.
+      # -----------------------------------------------------------------------
+      - name: Add capacity on the new revision
+        run: |
+          set -euo pipefail
+          new_count=$(( ${{ steps.fleet.outputs.desired }} * 2 ))
+          aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" \
+            --task-definition "${{ steps.taskdef.outputs.arn }}" \
+            --desired-count "$new_count" --no-cli-pager > /dev/null
+          echo "scaled to ${new_count}, waiting for the new nodes to become healthy"
+          aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"
+
+      - name: Mark old nodes as draining
+        run: |
+          set -euo pipefail
+          echo '${{ steps.fleet.outputs.old_tasks }}' | jq -r '.[]' | while read -r arn; do
+            node_id="${arn##*/}"
+            aws ssm put-parameter \
+              --name "/classroom/${ENV}/sfu/${node_id}/state" \
+              --value draining --type String --overwrite > /dev/null
+            echo "draining ${node_id}"
+          done
+
+      # -----------------------------------------------------------------------
+      # Poll the ActiveRooms metric each node publishes from observability/
+      # metrics.js. A node reporting zero has no lesson left to interrupt.
+      # -----------------------------------------------------------------------
+      - name: Wait for rooms to end
+        run: |
+          set -euo pipefail
+          deadline=$(( $(date +%s) + DRAIN_TIMEOUT ))
+          remaining=$(echo '${{ steps.fleet.outputs.old_tasks }}' | jq -r '.[]')
+
+          while [ -n "$remaining" ] && [ "$(date +%s)" -lt "$deadline" ]; do
+            still_busy=""
+            for arn in $remaining; do
+              node_id="${arn##*/}"
+              rooms=$(aws cloudwatch get-metric-statistics \
+                --namespace classroom/sfu --metric-name ActiveRooms \
+                --dimensions Name=NodeId,Value="$node_id" \
+                --start-time "$(date -u -d '5 minutes ago' +%FT%TZ)" \
+                --end-time "$(date -u +%FT%TZ)" \
+                --period 60 --statistics Maximum \
+                --query 'Datapoints | sort_by(@, &Timestamp) | [-1].Maximum' --output text)
+              [ "$rooms" = "None" ] && rooms=0
+              if [ "${rooms%.*}" -gt 0 ]; then
+                still_busy="${still_busy} ${arn}"
+                echo "  ${node_id}: ${rooms%.*} room(s) still live"
+              else
+                echo "  ${node_id}: drained"
+              fi
+            done
+            remaining="$(echo "$still_busy" | xargs || true)"
+            [ -n "$remaining" ] || break
+            echo "waiting… $(( (deadline - $(date +%s)) / 60 )) min left"
+            sleep 60
+          done
+
+          if [ -n "$remaining" ]; then
+            echo "::warning::drain timeout reached; the following nodes still hold rooms and will be stopped: ${remaining}"
+          fi
+
+      - name: Stop the old nodes
+        run: |
+          set -euo pipefail
+          echo '${{ steps.fleet.outputs.old_tasks }}' | jq -r '.[]' | while read -r arn; do
+            aws ecs stop-task --cluster "$CLUSTER" --task "$arn" \
+              --reason "replaced by ${SHA::7}" --no-cli-pager > /dev/null
+            aws ssm delete-parameter --name "/classroom/${ENV}/sfu/${arn##*/}/state" 2>/dev/null || true
+            echo "stopped ${arn##*/}"
+          done
+
+      - name: Return to normal capacity
+        if: always()
+        run: |
+          aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" \
+            --desired-count "${{ steps.fleet.outputs.desired }}" --no-cli-pager > /dev/null
+          aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"
+
+      - name: Verify the fleet
+        run: |
+          set -euo pipefail
+          bad=$(aws ecs list-tasks --cluster "$CLUSTER" --service-name "$SERVICE" \
+            --desired-status RUNNING --query 'taskArns' --output json \
+            | jq -r '.[]' \
+            | while read -r arn; do
+                td=$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$arn" \
+                  --query 'tasks[0].taskDefinitionArn' --output text)
+                [ "$td" = "${{ steps.taskdef.outputs.arn }}" ] || echo "$arn"
+              done)
+          [ -z "$bad" ] || { echo "::error::tasks still on an old revision: $bad"; exit 1; }
+          echo "every SFU node runs ${SHA::7}"
+
+      - name: Roll back
+        if: failure() && steps.taskdef.outcome == 'success'
+        run: |
+          echo "::warning::reverting the SFU service to the previous revision"
+          aws ecs update-service --cluster "$CLUSTER" --service "$SERVICE" \
+            --task-definition "${{ steps.fleet.outputs.previous }}" \
+            --desired-count "${{ steps.fleet.outputs.desired }}" --no-cli-pager > /dev/null

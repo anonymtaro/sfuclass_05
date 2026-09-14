@@ -1,0 +1,73 @@
+{
+  "name": "classroom-app",
+  "version": "6.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Live classrooms, courses, community, messaging and media on one platform.",
+  "license": "UNLICENSED",
+  "packageManager": "npm@10.9.2",
+  "engines": {
+    "node": ">=22.11.0 <23",
+    "npm": ">=10.9.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "server",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "dev:infra": "docker compose -f docker-compose.dev.yml up -d",
+    "dev:infra:full": "docker compose -f docker-compose.dev.yml --profile search --profile av up -d",
+    "dev:all": "docker compose -f docker-compose.dev.yml --profile app up",
+    "dev:logs": "docker compose -f docker-compose.dev.yml logs -f",
+    "dev:down": "docker compose -f docker-compose.dev.yml down",
+    "dev:reset": "docker compose -f docker-compose.dev.yml down -v --remove-orphans",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "lint:fix": "turbo run lint -- --fix",
+    "test": "turbo run test",
+    "test:contract": "turbo run test:contract",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:migrate": "npm run migrate --workspace @classroom/server",
+    "db:migrate:status": "npm run migrate:status --workspace @classroom/server",
+    "db:seed": "node ops/scripts/seed.js",
+    "keys:generate": "node ops/scripts/generate-jwt-keys.js",
+    "smoke": "bash ops/scripts/smoke.sh",
+    "clean": "turbo run clean",
+    "clean:all": "turbo run clean && rimraf node_modules **/node_modules",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.21",
+    "eslint": "9.27.0",
+    "husky": "9.1.7",
+    "lint-staged": "16.0.0",
+    "prettier": "3.5.3",
+    "rimraf": "6.0.1",
+    "turbo": "2.5.4",
+    "typescript": "5.8.3",
+    "vitest": "3.1.4"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml,sql}": [
+      "prettier --write"
+    ]
+  },
+  "prettier": {
+    "printWidth": 100,
+    "singleQuote": true,
+    "trailingComma": "all",
+    "arrowParens": "always",
+    "endOfLine": "lf"
+  },
+  "overrides": {
+    "semver": ">=7.6.0"
+  }
+}

@@ -1,0 +1,73 @@
+# =============================================================================
+# OpenTelemetry collector · development
+# =============================================================================
+# Everything the services emit through OTEL_EXPORTER_OTLP_ENDPOINT arrives here.
+# In AWS the same signals are exported to X-Ray and CloudWatch by the ADOT
+# sidecar; keeping a collector in the middle locally means the application code
+# has exactly one exporter target in every environment.
+# =============================================================================
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+  memory_limiter:
+    check_interval: 2s
+    limit_mib: 256
+    spike_limit_mib: 64
+  # Same redaction posture as observability/piiRedaction.js: a trace must never
+  # become the place where personal data leaks out of the system.
+  attributes/redact:
+    actions:
+      - key: user.email
+        action: delete
+      - key: http.request.header.authorization
+        action: delete
+      - key: http.request.header.cookie
+        action: delete
+      - key: chat.message.body
+        action: delete
+  resource/env:
+    attributes:
+      - key: deployment.environment
+        value: development
+        action: upsert
+
+exporters:
+  # Traces and metrics are printed to the collector log locally. Swap in an
+  # otlp/jaeger exporter when a UI is wanted.
+  debug:
+    verbosity: normal
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/redact, resource/env, batch]
+      exporters: [debug]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/env, batch]
+      exporters: [debug]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/redact, resource/env, batch]
+      exporters: [debug]
+  telemetry:
+    logs:
+      level: warn

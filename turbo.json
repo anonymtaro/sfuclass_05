@@ -1,0 +1,56 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "tui",
+  "globalDependencies": [".nvmrc", "tsconfig.base.json", "packages/config-presets/**"],
+  "globalEnv": ["NODE_ENV", "RELEASE_SHA"],
+  "globalPassThroughEnv": [
+    "CI",
+    "AWS_REGION",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "TURBO_TOKEN",
+    "TURBO_TEAM"
+  ],
+  "remoteCache": {
+    "signature": true
+  },
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.test.*", "!**/__tests__/**", "!README.md"],
+      "outputs": ["dist/**", "build/**", ".expo/**", "!.expo/cache/**"]
+    },
+    "dev": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "persistent": true
+    },
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", "tsconfig*.json"],
+      "outputs": []
+    },
+    "lint": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "outputs": ["coverage/**"],
+      "env": ["DATABASE_URL", "REDIS_URL"]
+    },
+    "test:contract": {
+      "dependsOn": ["@classroom/contracts#build"],
+      "outputs": [],
+      "description": "Validates that server routes and client calls still satisfy the zod schemas."
+    },
+    "migrate": {
+      "cache": false,
+      "env": ["DATABASE_URL", "PGSSLMODE"]
+    },
+    "clean": {
+      "cache": false
+    }
+  }
+}

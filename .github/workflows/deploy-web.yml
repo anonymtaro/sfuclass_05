@@ -1,0 +1,159 @@
+# =============================================================================
+# Deploy web · S3 and CloudFront
+# =============================================================================
+# The upload order is the whole trick. Hashed assets go up first and are
+# immutable for a year; index.html goes up last and is never cached. Between
+# those two steps the old index.html still points at old assets that are still
+# there, so no visitor can ever load a half-deployed bundle.
+#
+#   assets  →  Cache-Control: public, max-age=31536000, immutable
+#   index   →  Cache-Control: no-store
+#
+# Old assets are deleted by an S3 lifecycle rule in cdn.tf, not by --delete on
+# the sync, because a tab opened before the deploy will still ask for them.
+#
+# Environment variables required:  WEB_BUCKET · CLOUDFRONT_DISTRIBUTION_ID ·
+#   API_URL · PUBLIC_WS_URL · CDN_DOMAIN
+# =============================================================================
+
+name: deploy-web
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      release_sha:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [staging, production]
+        required: true
+      release_sha:
+        type: string
+        required: true
+
+concurrency:
+  group: deploy-web-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: deploy web · ${{ inputs.environment }}
+    runs-on: ubuntu-24.04
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ vars.APP_URL }}
+    timeout-minutes: 30
+
+    env:
+      HUSKY: 0
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ENV: ${{ inputs.environment }}
+      SHA: ${{ inputs.release_sha }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # Only VITE_-prefixed variables reach the browser bundle. Anything secret
+      # would be readable by every visitor, so nothing secret is listed here.
+      - name: Build
+        run: npm run build --workspace @classroom/web
+        env:
+          NODE_ENV: production
+          RELEASE_SHA: ${{ inputs.release_sha }}
+          VITE_API_URL: ${{ vars.API_URL }}
+          VITE_WS_URL: ${{ vars.PUBLIC_WS_URL }}
+          VITE_CDN_DOMAIN: ${{ vars.CDN_DOMAIN }}
+          VITE_ENVIRONMENT: ${{ inputs.environment }}
+          VITE_RELEASE_SHA: ${{ inputs.release_sha }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/${{ vars.AWS_DEPLOY_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gha-deploy-web-${{ inputs.environment }}
+
+      # -----------------------------------------------------------------------
+      - name: Upload hashed assets
+        run: |
+          set -euo pipefail
+          aws s3 sync apps/web/dist "s3://${{ vars.WEB_BUCKET }}" \
+            --exclude "index.html" \
+            --exclude "*.map" \
+            --cache-control "public, max-age=31536000, immutable" \
+            --metadata-directive REPLACE \
+            --no-progress
+
+      # Source maps are uploaded to a private prefix: useful for symbolicating a
+      # stack trace, not served to visitors.
+      - name: Upload source maps privately
+        run: |
+          set -euo pipefail
+          if compgen -G "apps/web/dist/**/*.map" > /dev/null; then
+            aws s3 sync apps/web/dist "s3://${{ vars.WEB_BUCKET }}-sourcemaps/${SHA}" \
+              --exclude "*" --include "*.map" --no-progress
+          fi
+
+      - name: Upload index.html
+        run: |
+          set -euo pipefail
+          aws s3 cp apps/web/dist/index.html "s3://${{ vars.WEB_BUCKET }}/index.html" \
+            --cache-control "no-store, must-revalidate" \
+            --content-type "text/html; charset=utf-8" \
+            --metadata "release=${SHA}" \
+            --no-progress
+
+      # Only the entry point needs invalidating; everything else is content
+      # hashed, so a wildcard invalidation would just cost money.
+      - name: Invalidate CloudFront
+        run: |
+          set -euo pipefail
+          id=$(aws cloudfront create-invalidation \
+            --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" \
+            --paths "/" "/index.html" \
+            --query 'Invalidation.Id' --output text)
+          echo "invalidation ${id}"
+          aws cloudfront wait invalidation-completed \
+            --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" --id "$id"
+
+      - name: Verify the served release
+        run: |
+          set -euo pipefail
+          served=$(curl -fsS "${{ vars.APP_URL }}/index.html" \
+            | grep -o 'name="release" content="[^"]*"' | cut -d'"' -f4 || true)
+          if [ "$served" != "$SHA" ]; then
+            echo "::error::CloudFront serves '${served}', expected '${SHA}'"
+            exit 1
+          fi
+          echo "web release ${SHA} is live"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Web deploy · ${ENV}"
+            echo ""
+            echo "- Release: \`${SHA}\`"
+            echo "- Bucket: \`${{ vars.WEB_BUCKET }}\`"
+            echo "- Result: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"

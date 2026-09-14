@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "display": "Classroom React library",
+  "_comment": [
+    "For packages that contain hooks or components: core-client, and later the",
+    "app workspaces.",
+    "",
+    "DOM is in lib even though this package also runs under React Native. The",
+    "structural media types and fetch need it at compile time; the adapters are",
+    "what keep the runtime differences out of the shared code."
+  ],
+  "extends": "./library.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx"
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
+}

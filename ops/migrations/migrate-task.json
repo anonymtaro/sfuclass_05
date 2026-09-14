@@ -1,0 +1,27 @@
+{
+  "_comment": "aws ecs run-task --cli-input-json file://ops/migrations/migrate-task.json (substitute <cluster>, <task-definition>, <subnet-ids>, <security-group-id> from `terraform output` before every rolling deploy - deploy.md step 3/4). Runs db/migrate.js against the api image so it never drifts from the code being deployed. Postgres advisory lock in db/migrate.js makes a concurrent run a no-op rather than a corruption.",
+  "cluster": "classroom-<env>-cluster",
+  "taskDefinition": "classroom-<env>-api",
+  "launchType": "FARGATE",
+  "count": 1,
+  "networkConfiguration": {
+    "awsvpcConfiguration": {
+      "subnets": ["<private-subnet-id-1>", "<private-subnet-id-2>"],
+      "securityGroups": ["<ecs-tasks-security-group-id>"],
+      "assignPublicIp": "DISABLED"
+    }
+  },
+  "overrides": {
+    "containerOverrides": [
+      {
+        "name": "api",
+        "command": ["node", "server/src/db/migrate.js"],
+        "environment": [
+          { "name": "NODE_ENV", "value": "production" },
+          { "name": "SERVICE_NAME", "value": "migrate" }
+        ]
+      }
+    ]
+  },
+  "propagateTags": "TASK_DEFINITION"
+}

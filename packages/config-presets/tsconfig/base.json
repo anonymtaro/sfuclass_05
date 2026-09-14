@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "display": "Classroom base",
+  "_comment": [
+    "Everything every workspace agrees on. Never extended directly by a package:",
+    "use library.json or react-library.json, which add the emit settings.",
+    "",
+    "The strictness here is deliberate. noUncheckedIndexedAccess in particular",
+    "forces a check on every array and record access; turning it off to make one",
+    "file compile removes that check everywhere."
+  ],
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "exactOptionalPropertyTypes": false,
+
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
+  },
+  "exclude": ["node_modules", "dist", "build", ".turbo"]
+}

@@ -1,0 +1,32 @@
+{
+  "name": "@classroom/config-presets",
+  "version": "6.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared eslint, tsconfig and vitest bases. Consumed by every other workspace so a rule change happens in one place.",
+  "exports": {
+    "./tsconfig/base.json": "./tsconfig/base.json",
+    "./tsconfig/library.json": "./tsconfig/library.json",
+    "./tsconfig/react-library.json": "./tsconfig/react-library.json",
+    "./eslint/base": "./eslint/base.js",
+    "./eslint/react": "./eslint/react.js",
+    "./vitest/base": "./vitest/base.js"
+  },
+  "files": ["tsconfig", "eslint", "vitest"],
+  "scripts": {
+    "lint": "eslint eslint vitest",
+    "clean": "rimraf .turbo"
+  },
+  "dependencies": {
+    "@eslint/js": "9.27.0",
+    "eslint-config-prettier": "10.1.5",
+    "eslint-plugin-react-hooks": "5.2.0",
+    "globals": "16.1.0",
+    "typescript-eslint": "8.32.1"
+  },
+  "peerDependencies": {
+    "eslint": ">=9",
+    "vitest": ">=3"
+  },
+  "engines": { "node": ">=22.11.0" }
+}

@@ -1,0 +1,91 @@
+# ---------------------------------------------------------------------------
+# classroom-app · docker build context
+# ---------------------------------------------------------------------------
+# All three images (api, sfu, worker) build from the repository root so they can
+# see packages/*. Everything the build does not need is excluded here: a smaller
+# context means faster builds, better layer caching and no accidental secret in
+# an image layer.
+# ---------------------------------------------------------------------------
+
+# Dependencies — reinstalled inside the image from the lockfile
+node_modules
+**/node_modules
+.npm
+.pnpm-store
+
+# Build output — produced inside the image
+dist
+build
+**/dist
+**/build
+**/.turbo
+.turbo
+apps/web/dist
+apps/mobile/.expo
+apps/mobile/android
+apps/mobile/ios
+
+# Secrets and local configuration — never in an image layer
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p8
+*.p12
+*.keystore
+secrets/
+.aws/
+.npmrc.local
+
+# Version control and CI
+.git
+.gitignore
+.gitattributes
+.github
+.husky
+
+# Infrastructure and operations — deployed, not built into the runtime
+infra/
+ops/runbooks/
+ops/load/
+ops/nginx/
+docker-compose*.yml
+Dockerfile*
+.dockerignore
+
+# Editors and operating system noise
+.vscode
+.idea
+*.swp
+.DS_Store
+Thumbs.db
+
+# Tests, coverage and fixtures
+coverage
+**/coverage
+**/__tests__
+**/*.test.js
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.js
+**/*.spec.ts
+test-results
+playwright-report
+
+# Documentation and design assets
+docs/
+*.md
+!README.md
+design/
+*.pdf
+*.fig
+
+# Local runtime artefacts
+logs
+*.log
+tmp
+.tmp
+recordings/
+uploads/
+data/

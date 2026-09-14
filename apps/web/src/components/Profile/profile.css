@@ -1,0 +1,380 @@
+/**
+ * Profile surface.
+ *
+ * Third and last folder that reads the ui-tokens variables directly
+ * (see components/Classroom/classroom.css and components/Chat/chat.css).
+ * A person looks the same in a lesson, in the dock and on their own settings
+ * page because all three resolve the same custom properties.
+ */
+
+.pf {
+  --pf-panel: var(--color-surface-raised, #161b22);
+  --pf-sunken: var(--color-surface-sunken, #0d1117);
+  --pf-line: var(--color-border, #262c36);
+  --pf-text: var(--color-text, #e6edf3);
+  --pf-muted: var(--color-text-muted, #8b949e);
+  --pf-accent: var(--color-accent, #4c8dff);
+  --pf-danger: var(--color-danger, #f0616d);
+  --pf-live: var(--color-live, #3fb950);
+  --pf-radius: var(--radius-md, 10px);
+
+  color: var(--pf-text);
+  font-family: var(--font-ui, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.pf-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid var(--pf-line);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.pf-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--pf-text) 8%, transparent);
+}
+
+.pf-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pf-btn--primary {
+  background: var(--pf-accent);
+  border-color: transparent;
+  color: #06101f;
+  font-weight: 600;
+}
+
+.pf-btn--danger {
+  color: var(--pf-danger);
+  border-color: color-mix(in srgb, var(--pf-danger) 40%, transparent);
+}
+
+.pf-btn--ghost {
+  border-color: transparent;
+  color: var(--pf-muted);
+}
+
+:where(.pf) :focus-visible {
+  outline: 2px solid var(--pf-accent);
+  outline-offset: 2px;
+}
+
+.pf-muted {
+  color: var(--pf-muted);
+}
+
+.pf-dialog {
+  width: min(420px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid var(--pf-line);
+  border-radius: var(--pf-radius);
+  background: var(--pf-panel);
+  color: var(--pf-text);
+}
+
+.pf-dialog--wide {
+  width: min(640px, calc(100vw - 32px));
+}
+
+.pf-dialog::backdrop {
+  background: rgb(0 0 0 / 0.6);
+}
+
+.pf-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--pf-line);
+}
+
+.pf-head__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.pf-body {
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+}
+
+.pf-foot {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--pf-line);
+}
+
+.pf-foot--end {
+  justify-content: flex-end;
+}
+
+/* ---------- identity block ---------- */
+
+.pf-identity {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.pf-identity--large {
+  grid-template-columns: 96px minmax(0, 1fr);
+}
+
+.pf-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--pf-sunken);
+}
+
+.pf-avatar--large {
+  width: 96px;
+  height: 96px;
+}
+
+.pf-name {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.pf-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 0;
+  color: var(--pf-muted);
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+
+.pf-presence {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--pf-muted);
+}
+
+.pf-presence[data-presence='online'],
+.pf-presence[data-presence='in-class'] {
+  background: var(--pf-live);
+}
+
+.pf-presence[data-presence='away'] {
+  background: #d29922;
+}
+
+.pf-bio {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* ---------- shared context ---------- */
+
+.pf-section {
+  display: grid;
+  gap: 6px;
+}
+
+.pf-section__label {
+  margin: 0;
+  color: var(--pf-muted);
+  font-size: 12px;
+}
+
+.pf-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pf-tag {
+  padding: 3px 9px;
+  border: 1px solid var(--pf-line);
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.pf-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.pf-stat {
+  padding: 8px 10px;
+  border: 1px solid var(--pf-line);
+  border-radius: 8px;
+}
+
+.pf-stat dt {
+  color: var(--pf-muted);
+  font-size: 12px;
+}
+
+.pf-stat dd {
+  margin: 2px 0 0;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- forms ---------- */
+
+.pf-field {
+  display: grid;
+  gap: 4px;
+}
+
+.pf-field > input,
+.pf-field > textarea,
+.pf-field > select {
+  padding: 8px 10px;
+  border: 1px solid var(--pf-line);
+  border-radius: 8px;
+  background: var(--pf-sunken);
+  color: inherit;
+  font: inherit;
+}
+
+.pf-field__hint {
+  color: var(--pf-muted);
+  font-size: 12px;
+}
+
+.pf-choice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 10px;
+  border: 1px solid var(--pf-line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.pf-choice[data-selected='true'] {
+  border-color: var(--pf-accent);
+  background: color-mix(in srgb, var(--pf-accent) 10%, transparent);
+}
+
+.pf-choice__title {
+  display: block;
+  font-weight: 600;
+}
+
+.pf-switch {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+}
+
+.pf-status {
+  margin: 0;
+  font-size: 12px;
+}
+
+.pf-status--error {
+  color: var(--pf-danger);
+}
+
+/* ---------- avatar uploader ---------- */
+
+.pf-uploader {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.pf-uploader__drop {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px dashed var(--pf-line);
+  border-radius: 8px;
+}
+
+.pf-uploader__drop[data-dropping='true'] {
+  border-color: var(--pf-accent);
+  background: color-mix(in srgb, var(--pf-accent) 8%, transparent);
+}
+
+.pf-uploader__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ---------- blocked list ---------- */
+
+.pf-blocked {
+  display: grid;
+  gap: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--pf-line);
+  border-radius: 8px;
+}
+
+.pf-blocked__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--pf-line);
+}
+
+.pf-blocked__row:last-child {
+  border-bottom: 0;
+}
+
+.pf-blocked__row img {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--pf-sunken);
+}
+
+.pf-blocked__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 480px) {
+  .pf-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pf-uploader {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+  }
+}

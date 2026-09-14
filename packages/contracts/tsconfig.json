@@ -1,0 +1,31 @@
+{
+  // Standalone for now. Once packages/config-presets/ exists this file becomes
+  // { "extends": "@classroom/config-presets/tsconfig/library.json", ... } and
+  // only "outDir", "rootDir" and "include" stay here.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+
+    // The server is plain JavaScript ESM, so this package has to emit real
+    // .js next to its .d.ts. Nothing here is consumed as TypeScript source.
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src",
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": false,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["dist", "node_modules", "**/*.test.ts"]
+}

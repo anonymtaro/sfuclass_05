@@ -1,0 +1,318 @@
+# =============================================================================
+# classroom-app · single-node production fallback
+# =============================================================================
+# This is NOT the normal way the platform runs. Production is ECS: api,
+# realtime and worker on Fargate, the SFU on EC2 with host networking, managed
+# PostgreSQL, Redis and S3 behind it (infra/).
+#
+# This file exists for three situations and nothing else:
+#   1. a regional outage where the platform has to come back on one machine
+#   2. an on-premise or single-tenant installation
+#   3. verifying that the images actually run before they reach ECS
+#
+# What it deliberately does not solve: horizontal scale, zero-downtime deploys,
+# multi-AZ failover and managed backups. Anything running here longer than an
+# incident should be moved back onto the ECS stack.
+#
+# Usage
+#   cp .env.example .env.prod && edit it   (real secrets, DEBUG-free values)
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod run --rm migrate
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+#
+# Images are pulled by digest-pinned tag from ECR. Never build on the host.
+# =============================================================================
+
+name: classroom
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: '50m'
+      max-file: '5'
+      tag: '{{.Name}}'
+
+x-app-env: &app-env
+  env_file: [.env.prod]
+  environment:
+    NODE_ENV: production
+    RELEASE_SHA: ${RELEASE_SHA:?RELEASE_SHA must be set}
+    DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    TRUST_PROXY: 1
+    COOKIE_SECURE: 'true'
+    LOG_PRETTY: 'false'
+
+x-app-common: &app-common
+  <<: [*logging, *app-env]
+  restart: unless-stopped
+  stop_grace_period: 40s
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp
+  security_opt:
+    - no-new-privileges:true
+  networks: [edge, internal]
+
+services:
+  # ---------------------------------------------------------------------------
+  # Reverse proxy — TLS termination, WebSocket upgrade, static SPA
+  # In AWS this role belongs to CloudFront and the ALB.
+  # ---------------------------------------------------------------------------
+  nginx:
+    image: nginx:1.27-alpine
+    <<: *logging
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./ops/nginx/classroom.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./ops/nginx/certs:/etc/nginx/certs:ro
+      - webroot:/var/www/app:ro
+    depends_on:
+      api: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost/healthz']
+      interval: 15s
+      timeout: 5s
+      retries: 4
+    networks: [edge]
+
+  # ---------------------------------------------------------------------------
+  # API — HTTP, signalling and chat gateway
+  # ---------------------------------------------------------------------------
+  api:
+    <<: *app-common
+    image: ${ECR_REGISTRY}/classroom-api:${RELEASE_SHA}
+    command: ['node', 'server/src/server.js']
+    environment:
+      SERVICE_NAME: classroom-api
+      PORT: 4000
+    expose: ['4000']
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'node -e "fetch(\"http://localhost:4000/readyz\").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"'
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 40s
+    deploy:
+      resources:
+        limits: { cpus: '2.0', memory: 2G }
+        reservations: { memory: 512M }
+
+  # ---------------------------------------------------------------------------
+  # Realtime — Yjs collaboration and presence
+  # ---------------------------------------------------------------------------
+  realtime:
+    <<: *app-common
+    image: ${ECR_REGISTRY}/classroom-api:${RELEASE_SHA}
+    command: ['node', 'server/src/realtime/collabServer.js']
+    environment:
+      SERVICE_NAME: classroom-realtime
+      PORT: 4100
+    expose: ['4100']
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'node -e "fetch(\"http://localhost:4100/healthz\").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"'
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 30s
+    deploy:
+      resources:
+        limits: { cpus: '1.0', memory: 1G }
+
+  # ---------------------------------------------------------------------------
+  # Worker — transcoding, notifications, digests, chat fan-out, recordings
+  # ---------------------------------------------------------------------------
+  worker:
+    <<: *app-common
+    image: ${ECR_REGISTRY}/classroom-worker:${RELEASE_SHA}
+    command: ['node', 'server/src/worker.js']
+    environment:
+      SERVICE_NAME: classroom-worker
+    # ffmpeg writes its working files here; nothing durable lives on this disk.
+    tmpfs:
+      - /tmp:size=8g
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD-SHELL', 'node server/src/queues/healthcheck.js']
+      interval: 30s
+      timeout: 10s
+      retries: 4
+      start_period: 30s
+    deploy:
+      resources:
+        limits: { cpus: '4.0', memory: 6G }
+
+  # ---------------------------------------------------------------------------
+  # SFU — host networking, fixed UDP range, drains before it stops
+  # ---------------------------------------------------------------------------
+  sfu:
+    <<: [*logging, *app-env]
+    image: ${ECR_REGISTRY}/classroom-sfu:${RELEASE_SHA}
+    command: ['node', 'server/src/mediasoup/index.js']
+    environment:
+      SERVICE_NAME: classroom-sfu
+      SFU_HTTP_PORT: 4200
+      SFU_NODE_ID: ${SFU_NODE_ID:-sfu-single-1}
+      ANNOUNCED_IP: ${ANNOUNCED_IP:?public IP of this host}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@127.0.0.1:6379
+    network_mode: host
+    restart: unless-stopped
+    # Long enough for SFU_DRAIN_TIMEOUT_SEC to matter; a live lesson is not cut off.
+    stop_grace_period: 300s
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    ulimits:
+      nofile: { soft: 65536, hard: 65536 }
+    depends_on:
+      redis: { condition: service_healthy }
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'node -e "fetch(\"http://localhost:4200/healthz/sfu\").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"'
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 30s
+    deploy:
+      resources:
+        limits: { cpus: '4.0', memory: 4G }
+
+  # ---------------------------------------------------------------------------
+  # Migrations — runs to completion before the services are started or updated
+  # ---------------------------------------------------------------------------
+  migrate:
+    <<: [*logging, *app-env]
+    image: ${ECR_REGISTRY}/classroom-api:${RELEASE_SHA}
+    command: ['node', 'server/src/db/migrate.js', 'up']
+    restart: 'no'
+    profiles: [tools]
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [internal]
+
+  # ---------------------------------------------------------------------------
+  # Stateful services — RDS and ElastiCache in AWS, local only in this fallback
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:17.5-alpine
+    <<: *logging
+    restart: unless-stopped
+    stop_grace_period: 60s
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_DB: ${POSTGRES_DB:?required}
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - shared_buffers=1GB
+      - -c
+      - log_min_duration_statement=1000
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./ops/backups:/backups
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks: [internal]
+    deploy:
+      resources:
+        limits: { memory: 4G }
+
+  redis:
+    image: redis:7.4-alpine
+    <<: *logging
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:?required}
+      - --appendonly
+      - 'yes'
+      - --maxmemory
+      - 1gb
+      - --maxmemory-policy
+      - noeviction
+    # Reachable on the host loopback because the SFU runs in the host namespace.
+    ports: ['127.0.0.1:6379:6379']
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli -a "$$REDIS_PASSWORD" ping | grep PONG']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    networks: [internal]
+
+  # ---------------------------------------------------------------------------
+  # Nightly logical backup. In AWS this is RDS automated backups plus PITR;
+  # here it is the only line of defence, so it is not optional.
+  # ---------------------------------------------------------------------------
+  pg-backup:
+    image: postgres:17.5-alpine
+    <<: *logging
+    restart: unless-stopped
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./ops/backups:/backups
+    entrypoint: >
+      /bin/sh -c "
+      while true; do
+        ts=$$(date -u +%Y%m%dT%H%M%SZ);
+        pg_dump -h postgres -U $$POSTGRES_USER -d $$POSTGRES_DB -Fc -f /backups/classroom-$$ts.dump &&
+        echo \"backup ok $$ts\" ||
+        echo \"BACKUP FAILED $$ts\";
+        find /backups -name 'classroom-*.dump' -mtime +14 -delete;
+        sleep 86400;
+      done
+      "
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [internal]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.126.0
+    <<: *logging
+    restart: unless-stopped
+    command: ['--config=/etc/otel/collector.prod.yaml']
+    volumes:
+      - ./ops/otel/collector.prod.yaml:/etc/otel/collector.prod.yaml:ro
+    networks: [internal]
+
+volumes:
+  pgdata:
+  redisdata:
+  webroot:
+
+networks:
+  edge:
+    driver: bridge
+  internal:
+    driver: bridge
+    internal: true

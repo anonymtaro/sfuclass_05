@@ -1,0 +1,153 @@
+# =============================================================================
+# Smoke test · does the deployed system actually work?
+# =============================================================================
+# Called by every deploy workflow and runnable on its own. It is not a test
+# suite: it is the shortest path that proves the release is serving real users,
+# and it exercises one thing from each subsystem that has ever broken silently.
+#
+#   readiness   /readyz — Postgres, Redis and S3 answered
+#   release     /healthz reports the SHA that was just deployed
+#   auth        a seeded account can log in and refresh          (F5)
+#   classroom   a room can be created and an SFU node resolved   (F1)
+#   chat        a message reaches a second session over the socket (F6)
+#   media       a presigned upload completes and the asset turns ready (F4)
+#   web         the SPA loads and its release matches the API
+#
+# The heavy lifting lives in ops/scripts/smoke.sh, so an on-call engineer can
+# run exactly the same checks by hand during an incident.
+#
+# Secrets:  SMOKE_USER_EMAIL · SMOKE_USER_PASSWORD   (a seeded, low-privilege
+# account that owns nothing and can be reset at will)
+# =============================================================================
+
+name: e2e-smoke
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      release_sha:
+        type: string
+        required: false
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [staging, production]
+        required: true
+  # A failing smoke test between deploys means something drifted; better to
+  # learn that from a schedule than from a support ticket.
+  schedule:
+    - cron: '0 * * * *'
+
+concurrency:
+  group: smoke-${{ inputs.environment || 'staging' }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: smoke · ${{ inputs.environment || 'staging' }}
+    runs-on: ubuntu-24.04
+    environment:
+      name: ${{ inputs.environment || 'staging' }}
+    timeout-minutes: 15
+
+    env:
+      API_URL: ${{ vars.API_URL }}
+      APP_URL: ${{ vars.APP_URL }}
+      WS_URL: ${{ vars.PUBLIC_WS_URL }}
+      EXPECTED_RELEASE: ${{ inputs.release_sha }}
+      SMOKE_USER_EMAIL: ${{ secrets.SMOKE_USER_EMAIL }}
+      SMOKE_USER_PASSWORD: ${{ secrets.SMOKE_USER_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # -----------------------------------------------------------------------
+      # Cheap checks first, with a retry window: a service that has just been
+      # replaced may still be warming up behind the load balancer.
+      # -----------------------------------------------------------------------
+      - name: Readiness
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            if curl -fsS --max-time 10 "${API_URL}/readyz" > readyz.json; then
+              echo "ready after ${attempt} attempt(s)"
+              cat readyz.json
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::/readyz never became healthy"
+          curl -sS -i --max-time 10 "${API_URL}/readyz" || true
+          exit 1
+
+      - name: Release matches
+        if: inputs.release_sha != ''
+        run: |
+          set -euo pipefail
+          running=$(curl -fsS "${API_URL}/healthz" | jq -r '.release')
+          [ "$running" = "$EXPECTED_RELEASE" ] || {
+            echo "::error::API reports '${running}', expected '${EXPECTED_RELEASE}'"; exit 1; }
+
+      - name: Web app loads
+        run: |
+          set -euo pipefail
+          code=$(curl -fsS -o index.html -w '%{http_code}' "${APP_URL}/")
+          [ "$code" = "200" ] || { echo "::error::SPA returned ${code}"; exit 1; }
+          grep -q '<div id="root"' index.html || {
+            echo "::error::index.html does not look like the built SPA"; exit 1; }
+
+      # -----------------------------------------------------------------------
+      # The real path: log in, open a room, send a chat message, upload a file.
+      # -----------------------------------------------------------------------
+      - name: Install
+        run: npm ci
+
+      - name: Functional smoke
+        run: bash ops/scripts/smoke.sh
+        env:
+          SMOKE_TIMEOUT_SEC: 120
+
+      # -----------------------------------------------------------------------
+      - name: Collect evidence on failure
+        if: failure()
+        run: |
+          {
+            echo "### Smoke failed · ${{ inputs.environment || 'staging' }}"
+            echo ""
+            echo "| Check | Result |"
+            echo "| --- | --- |"
+            echo "| /healthz | $(curl -s -o /dev/null -w '%{http_code}' "${API_URL}/healthz") |"
+            echo "| /readyz | $(curl -s -o /dev/null -w '%{http_code}' "${API_URL}/readyz") |"
+            echo "| SPA | $(curl -s -o /dev/null -w '%{http_code}' "${APP_URL}/") |"
+            echo ""
+            echo "Readiness payload:"
+            echo '```json'
+            curl -s --max-time 10 "${API_URL}/readyz" || echo '{"error":"unreachable"}'
+            echo '```'
+            echo ""
+            echo "Next step: ops/runbooks/rollback.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-${{ inputs.environment || 'staging' }}-${{ github.run_id }}
+          path: |
+            readyz.json
+            index.html
+            smoke-*.log
+          retention-days: 14
+          if-no-files-found: ignore
