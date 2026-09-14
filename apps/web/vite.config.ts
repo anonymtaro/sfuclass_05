@@ -1,95 +1,49 @@
-import { defineConfig, loadEnv, type PluginOption } from 'vite';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { fileURLToPath, URL } from 'node:url';
 
 /**
- * apps/web — Vite 6 / React 19 build.
+ * Vite configuration  (F5)  [EXT]
  *
- * Contract with the rest of the repo:
- *  - Source of truth for API + socket payloads is `@classroom/contracts`.
- *  - All transport, RTC and state hooks come from `@classroom/core-client`.
- *    Nothing in apps/web may import `mediasoup-client` or `socket.io-client`
- *    directly; that keeps the mobile app (apps/mobile) on the same code path.
- *  - Colours, spacing and type come from `@classroom/ui-tokens`, which emits
- *    the CSS custom properties consumed by components/Classroom/classroom.css.
- *  - Output is uploaded to S3 and served by CloudFront (deploy-web.yml):
- *    /assets/* is content-hashed and immutable, index.html is never cached.
+ * Two things here are load-bearing rather than cosmetic:
+ *
+ *   __RELEASE_SHA__  main.jsx passes it to CoreProvider, which stamps it onto
+ *                    every request and error report. Without the define, the
+ *                    app throws on boot with "__RELEASE_SHA__ is not defined".
+ *
+ *   manualChunks     the classroom pulls in mediasoup-client and the builder
+ *                    pulls in dnd-kit. Somebody who only reads community
+ *                    threads should download neither, which is why they get
+ *                    their own chunks rather than landing in the main bundle.
  */
+export default defineConfig(({ mode }) => ({
+  plugins: [react()],
 
-const r = (p: string) => fileURLToPath(new URL(p, import.meta.url));
+  define: {
+    __RELEASE_SHA__: JSON.stringify(process.env.RELEASE_SHA ?? 'local'),
+  },
 
-/** Replaces %VITE_*% placeholders in index.html (CSP + preconnect origins). */
-function htmlEnv(env: Record<string, string>): PluginOption {
-  return {
-    name: 'classroom-html-env',
-    transformIndexHtml: {
-      order: 'pre',
-      handler: (html) =>
-        html.replace(/%(VITE_[A-Z0-9_]+)%/g, (_m, key: string) => env[key] ?? ''),
-    },
-  };
-}
+  server: {
+    // 0.0.0.0, not localhost: the port is unreachable from outside the
+    // container otherwise.
+    host: '0.0.0.0',
+    port: 5173,
+    strictPort: true,
+  },
 
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), 'VITE_');
-  const isProd = mode === 'production';
+  preview: { host: '0.0.0.0', port: 5173 },
 
-  return {
-    plugins: [react(), htmlEnv(env)],
-
-    resolve: {
-      alias: {
-        '@': r('./src'),
-        '@classroom/contracts': r('../../packages/contracts/src'),
-        '@classroom/core-client': r('../../packages/core-client/src'),
-        '@classroom/ui-tokens': r('../../packages/ui-tokens/src'),
-      },
-      // Yjs must be a single instance or awareness state silently splits in two.
-      dedupe: ['react', 'react-dom', 'yjs'],
-    },
-
-    define: {
-      __RELEASE_SHA__: JSON.stringify(process.env.RELEASE_SHA ?? 'dev'),
-    },
-
-    server: {
-      port: 5173,
-      strictPort: true,
-      proxy: {
-        // docker-compose.dev.yml: api on 3000, collab/presence on the same host.
-        '/api': { target: 'http://localhost:3000', changeOrigin: true },
-        '/socket.io': { target: 'http://localhost:3000', ws: true },
-        '/collab': { target: 'ws://localhost:3000', ws: true },
-      },
-    },
-
-    build: {
-      target: 'es2022',
-      cssTarget: 'chrome111',
-      // Maps are generated for the release upload step but are NOT referenced
-      // by the shipped bundle, so they are never fetched by a browser.
-      sourcemap: 'hidden',
-      chunkSizeWarningLimit: 900,
-      rollupOptions: {
-        output: {
-          entryFileNames: 'assets/[name].[hash].js',
-          chunkFileNames: 'assets/[name].[hash].js',
-          assetFileNames: 'assets/[name].[hash][extname]',
-          manualChunks: {
-            // mediasoup-client is only needed once a lesson actually starts.
-            rtc: ['mediasoup-client'],
-            collab: ['yjs', 'y-websocket', 'y-protocols'],
-            vendor: ['react', 'react-dom'],
-          },
+  build: {
+    // Hashed assets are immutable for a year; index.html is never cached.
+    // cdn.tf enforces the caching side of that.
+    assetsDir: 'assets',
+    sourcemap: mode !== 'production' ? true : 'hidden',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          rtc: ['mediasoup-client'],
+          react: ['react', 'react-dom', 'react-router-dom'],
         },
       },
     },
-
-    esbuild: isProd ? { legalComments: 'none', drop: ['debugger'] } : undefined,
-
-    test: {
-      environment: 'jsdom',
-      setupFiles: ['./src/test/setup.ts'],
-    },
-  };
-});
+  },
+}));

@@ -3,78 +3,35 @@
   "version": "6.0.0",
   "private": true,
   "type": "module",
-  "description": "Transport, state and offline behaviour shared by the web and mobile apps. No UI, no components, no styling.",
-  "sideEffects": false,
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "description": "Transport, media and state for web and mobile. Zero UI.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    },
-    "./http/*": {
-      "types": "./dist/http/*.d.ts",
-      "import": "./dist/http/*.js"
-    },
-    "./rtc/*": {
-      "types": "./dist/rtc/*.d.ts",
-      "import": "./dist/rtc/*.js"
-    },
-    "./api/*": {
-      "types": "./dist/api/*.d.ts",
-      "import": "./dist/api/*.js"
-    },
-    "./state/*": {
-      "types": "./dist/state/*.d.ts",
-      "import": "./dist/state/*.js"
-    },
-    "./socket/*": {
-      "types": "./dist/socket/*.d.ts",
-      "import": "./dist/socket/*.js"
-    },
-    "./offline/*": {
-      "types": "./dist/offline/*.d.ts",
-      "import": "./dist/offline/*.js"
-    }
+    ".": "./src/index.ts"
   },
-  "files": [
-    "dist"
-  ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:contract": "vitest run",
-    "clean": "rimraf dist .turbo"
+    "clean": "rimraf node_modules .turbo"
   },
   "dependencies": {
-    "@classroom/contracts": "6.0.0",
-    "socket.io-client": "4.8.3",
-    "zod": "4.1.5"
+    "@classroom/contracts": "*",
+    "socket.io-client": "4.8.1",
+    "zod": "3.25.28"
   },
   "peerDependencies": {
-    "mediasoup-client": "^3.7.0",
-    "react": ">=19"
+    "mediasoup-client": ">=3.7",
+    "react": ">=18"
   },
   "peerDependenciesMeta": {
     "mediasoup-client": {
       "optional": true
-    },
-    "react": {
-      "optional": true
     }
   },
   "devDependencies": {
-    "@types/react": "19.3.0",
-    "mediasoup-client": "3.23.1",
-    "react": "19.3.0",
-    "rimraf": "6.0.1",
-    "typescript": "5.8.3",
-    "vitest": "3.1.4"
-  },
-  "engines": {
-    "node": ">=22.11.0"
+    "@types/react": "18.3.23",
+    "mediasoup-client": "3.11.4",
+    "react": "18.3.1"
   }
 }

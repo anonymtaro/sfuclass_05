@@ -1,0 +1,58 @@
+{
+  "name": "@classroom/server",
+  "version": "6.0.0",
+  "private": true,
+  "type": "module",
+  "description": "API, SFU and background worker.",
+  "main": "src/server.js",
+  "exports": {
+    ".": "./src/server.js",
+    "./app": "./src/app.js"
+  },
+  "scripts": {
+    "dev": "node --watch --env-file=../.env src/server.js",
+    "dev:sfu": "node --watch --env-file=../.env src/mediasoup/index.js",
+    "dev:worker": "node --watch --env-file=../.env src/worker.js",
+    "start": "node src/server.js",
+    "migrate": "node src/db/migrate.js up",
+    "migrate:status": "node src/db/migrate.js status",
+    "lint": "eslint src",
+    "test": "vitest run",
+    "test:contract": "vitest run --dir test/contract",
+    "clean": "rimraf node_modules .turbo"
+  },
+  "dependencies": {
+    "@aws-sdk/client-mediaconvert": "3.812.0",
+    "@aws-sdk/client-s3": "3.812.0",
+    "@aws-sdk/client-secrets-manager": "3.812.0",
+    "@aws-sdk/client-ses": "3.812.0",
+    "@aws-sdk/client-sns": "3.812.0",
+    "@aws-sdk/client-transcribe": "3.812.0",
+    "@aws-sdk/cloudfront-signer": "3.809.0",
+    "@aws-sdk/s3-request-presigner": "3.812.0",
+    "@classroom/contracts": "*",
+    "@opentelemetry/auto-instrumentations-node": "0.59.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.201.0",
+    "@opentelemetry/sdk-node": "0.201.0",
+    "@socket.io/redis-adapter": "8.3.0",
+    "bullmq": "5.52.1",
+    "cookie-parser": "1.4.7",
+    "cors": "2.8.5",
+    "express": "4.21.2",
+    "helmet": "8.1.0",
+    "ioredis": "5.6.1",
+    "jose": "6.0.11",
+    "mediasoup": "3.16.5",
+    "nodemailer": "6.10.1",
+    "pg": "8.16.0",
+    "pino": "9.7.0",
+    "socket.io": "4.8.1",
+    "y-protocols": "1.0.6",
+    "yjs": "13.6.27",
+    "zod": "3.25.28"
+  },
+  "devDependencies": {
+    "pino-pretty": "13.0.0",
+    "supertest": "7.1.1"
+  }
+}

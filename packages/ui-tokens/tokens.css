@@ -1,0 +1,98 @@
+/*
+ * Design tokens  (F5)
+ *
+ * The one place a colour, a spacing step or a font stack is written down.
+ * apps/web imports this file directly; apps/mobile reads the same values from
+ * src/{colors,spacing,typography}.ts, because React Native has no CSS.
+ *
+ * Dark is the default rather than the alternative: a live lesson is usually
+ * watched in a dim room, and a white page next to a video tile is a lamp.
+ * The light scheme below follows the user's OS preference.
+ */
+
+:root {
+  /* --- surfaces ------------------------------------------------------ */
+  --color-bg: #0b0e14;
+  --color-surface: #151a24;
+  --color-surface-2: #1e2531;
+  --color-border: #222936;
+
+  /* --- text ---------------------------------------------------------- */
+  --color-text: #e8eaed;
+  --color-muted: #8b93a1;
+
+  /* --- intent -------------------------------------------------------- */
+  --color-accent: #4c6fff;
+  --color-accent-quiet: #1c2340;
+  --color-success: #2ecc71;
+  --color-warning: #f5a623;
+  --color-danger: #e5484d;
+
+  /* --- presence ------------------------------------------------------ */
+  --color-presence-online: #2ecc71;
+  --color-presence-away: #f5a623;
+  --color-presence-in-class: #4c6fff;
+  --color-presence-offline: #5a6373;
+
+  /* --- typography ---------------------------------------------------- */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  --text-xs: 11px;
+  --text-sm: 13px;
+  --text-base: 15px;
+  --text-lg: 18px;
+  --text-xl: 24px;
+
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+
+  /* --- spacing: a 4px scale, so nothing lands off-grid ---------------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* --- radii and elevation ------------------------------------------- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 30%);
+  --shadow-2: 0 4px 16px rgb(0 0 0 / 35%);
+
+  /* --- motion -------------------------------------------------------- */
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* --- layout -------------------------------------------------------- */
+  --layout-nav-height: 52px;
+  --layout-sidebar-width: 280px;
+  --layout-controls-height: 64px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --color-bg: #ffffff;
+    --color-surface: #f7f8fa;
+    --color-surface-2: #eceef2;
+    --color-border: #dfe3e9;
+    --color-text: #12151c;
+    --color-muted: #646c7a;
+    --color-presence-offline: #b4bac4;
+  }
+}
+
+/* Every animation in the product is decoration. Honouring this is not a
+   nicety — for some people motion is the difference between usable and not. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-base: 0ms;
+  }
+}

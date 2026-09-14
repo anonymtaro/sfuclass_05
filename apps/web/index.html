@@ -1,57 +1,14 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en">
   <head>
-    <meta charset="utf-8" />
+    <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="color-scheme" content="dark light" />
-    <meta name="theme-color" content="#0d1117" />
-
+    <meta name="color-scheme" content="light dark" />
+    <meta name="description" content="Live classrooms, courses, community and messaging." />
     <title>Classroom</title>
-    <meta name="description" content="Live classrooms, courses and community." />
-
-    <!--
-      Runtime origins are injected at build time by vite.config.ts (see `htmlEnv`)
-      so the CSP below never has to be edited per environment.
-      index.html itself is served with `no-store` (deploy-web.yml); every hashed
-      asset under /assets/ is immutable for a year.
-    -->
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="
-        default-src 'self';
-        base-uri 'self';
-        object-src 'none';
-        frame-ancestors 'none';
-        form-action 'self';
-        script-src 'self';
-        style-src 'self' 'unsafe-inline';
-        img-src 'self' data: blob: %VITE_CDN_ORIGIN%;
-        media-src 'self' blob: %VITE_CDN_ORIGIN%;
-        font-src 'self';
-        connect-src 'self' %VITE_API_ORIGIN% %VITE_WS_ORIGIN% %VITE_CDN_ORIGIN%;
-        worker-src 'self' blob:;
-        upgrade-insecure-requests;
-      "
-    />
-    <meta name="referrer" content="strict-origin-when-cross-origin" />
-
-    <link rel="preconnect" href="%VITE_API_ORIGIN%" crossorigin />
-    <link rel="preconnect" href="%VITE_CDN_ORIGIN%" crossorigin />
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <link rel="manifest" href="/manifest.webmanifest" />
   </head>
-
   <body>
     <div id="root"></div>
-
-    <!-- Shown only if the bundle never executes (hard network failure, blocked script). -->
-    <noscript>
-      <p style="font: 16px/1.5 system-ui; margin: 4rem auto; max-width: 34rem">
-        Classroom needs JavaScript to run a live lesson. Turn it on and reload this page.
-      </p>
-    </noscript>
-
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

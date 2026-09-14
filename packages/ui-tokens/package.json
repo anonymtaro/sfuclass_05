@@ -3,24 +3,14 @@
   "version": "6.0.0",
   "private": true,
   "type": "module",
-  "description": "Design tokens shared by the web and mobile apps. Values only — no components, no CSS files, no platform assumptions.",
-  "sideEffects": false,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
   "exports": {
-    "./colors": { "types": "./dist/colors.d.ts", "import": "./dist/colors.js" },
-    "./spacing": { "types": "./dist/spacing.d.ts", "import": "./dist/spacing.js" },
-    "./typography": { "types": "./dist/typography.d.ts", "import": "./dist/typography.js" }
+    ".": "./src/index.ts",
+    "./tokens.css": "./tokens.css"
   },
-  "files": ["dist"],
+  "files": ["tokens.css", "src"],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint src",
-    "clean": "rimraf dist .turbo"
-  },
-  "devDependencies": {
-    "rimraf": "6.0.1",
-    "typescript": "5.8.3"
-  },
-  "engines": { "node": ">=22.11.0" }
+    "clean": "rimraf node_modules .turbo"
+  }
 }
