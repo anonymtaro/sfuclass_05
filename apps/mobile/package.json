@@ -1,6 +1,6 @@
 {
   "name": "@classroom/mobile",
-  "version": "1.0.0",
+  "version": "6.0.0",
   "private": true,
   "main": "index.ts",
   "scripts": {
@@ -12,12 +12,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@classroom/contracts": "workspace:*",
-    "@classroom/core-client": "workspace:*",
-    "@classroom/ui-tokens": "workspace:*",
-    "@react-navigation/bottom-tabs": "^7.0.0",
-    "@react-navigation/native": "^7.0.0",
-    "@react-navigation/native-stack": "^7.0.0",
+    "@classroom/contracts": "*",
+    "@classroom/core-client": "*",
+    "@classroom/ui-tokens": "*",
+    "@react-navigation/bottom-tabs": "^7",
+    "@react-navigation/native": "^7",
+    "@react-navigation/native-stack": "^7",
     "expo": "~52.0.0",
     "expo-av": "~15.0.0",
     "expo-constants": "~17.0.0",
@@ -26,19 +26,19 @@
     "expo-file-system": "~18.0.0",
     "expo-notifications": "~0.29.0",
     "expo-secure-store": "~14.0.0",
-    "mediasoup-client": "^3.7.0",
-    "react": "19.0.0",
+    "mediasoup-client": "^3",
+    "react": "18.3.1",
     "react-native": "0.76.0",
     "react-native-safe-area-context": "^4.12.0",
-    "react-native-screens": "^4.0.0",
-    "react-native-webrtc": "^124.0.0",
-    "socket.io-client": "^4.8.0",
-    "yjs": "^13.6.0"
+    "react-native-screens": "^4",
+    "react-native-webrtc": "^124",
+    "socket.io-client": "^4",
+    "yjs": "^13.6"
   },
   "devDependencies": {
-    "@classroom/config-presets": "workspace:*",
-    "@config-plugins/react-native-webrtc": "^10.0.0",
-    "@types/react": "~19.0.0",
+    "@classroom/config-presets": "*",
+    "@config-plugins/react-native-webrtc": "^10",
+    "@types/react": "~18.3.23",
     "expo-build-properties": "~0.13.0",
     "typescript": "~5.6.0"
   }

@@ -52,7 +52,8 @@ import communityRoutes from './routes/community.routes.js';
 import mediaRoutes from './routes/media.routes.js';
 import assignmentRoutes from './routes/assignment.routes.js';
 import messagingRoutes from './routes/messaging.routes.js';
-import profileRoutes from './routes/profile.routes.js';
+import profileRoutes from './routes/profile.routes.js'; 
+import cookieParser from 'cookie-parser';
 
 export const createApp = () => {
   const app = express();
@@ -103,6 +104,8 @@ export const createApp = () => {
   // Rejects multipart, then parses JSON and urlencoded under the configured
   // caps. Files never travel through the API.
   app.use(bodyParsers());
+
+  app.use(cookieParser(env.COOKIE_SECRET));
 
   // -------------------------------------------------------------------------
   // 8. Abuse controls

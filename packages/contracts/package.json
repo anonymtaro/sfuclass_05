@@ -1,0 +1,25 @@
+{
+  "name": "@classroom/contracts",
+  "version": "6.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Single source of truth for the API and WebSocket surface. Shared by server, web and mobile.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:contract": "vitest run",
+    "clean": "rimraf node_modules .turbo"
+  },
+  "dependencies": {
+    "zod": "^4"
+  },
+  "devDependencies": {
+    "typescript": "5.8.3"
+  }
+}

@@ -69,5 +69,11 @@
   },
   "overrides": {
     "semver": ">=7.6.0"
+  },
+  "allowScripts": {
+    "mediasoup@3.27.0": true,
+    "esbuild@0.25.12": true,
+    "msgpackr-extract@3.0.4": true,
+    "protobufjs@7.6.6": true
   }
 }

@@ -24,7 +24,6 @@ import * as AuthService from '../identity/AuthService.js';
 import * as DeviceRegistry from '../identity/DeviceRegistry.js';
 import { env } from '../config/env.js';
 import { rateLimit } from '../middleware/rateLimit.js';
-import { csrfProtection } from '../middleware/csrf.js';
 import { route, validate, requireAuth, noStore, unauthorised } from './_helpers.js';
 
 const router = Router();
@@ -36,7 +35,7 @@ const refreshCookieOptions = () => ({
   secure: env.NODE_ENV === 'production',
   sameSite: 'strict',
   path: '/auth',
-  maxAge: env.REFRESH_TTL * 1000,
+  maxAge: toMilliseconds(env.REFRESH_TTL),
   signed: true,
 });
 
@@ -46,6 +45,16 @@ const deviceSchema = z.object({
   model: z.string().max(128).optional(),
   appVersion: z.string().max(32).optional(),
 });
+
+
+const DURATION_UNITS = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 };
+
+/** '30d' -> 2592000000. env.js validates the /^\d+[smhd]$/ shape already. */
+const toMilliseconds = (value) => {
+  const amount = Number.parseInt(value, 10);
+  return amount * DURATION_UNITS[value.at(-1)];
+};
+
 
 function issue(res, tokens) {
   res.cookie(REFRESH_COOKIE, tokens.refreshToken, refreshCookieOptions());
@@ -58,6 +67,35 @@ function issue(res, tokens) {
     // The refresh token is never in the body on web. Mobile asks for it explicitly below.
   };
 }
+
+
+
+/* ------------------------------------------------------------------ *
+ * CSRF bootstrap
+ * ------------------------------------------------------------------ */
+
+/**
+ * Hands out the double-submit token.
+ *
+ * The SPA is served from CloudFront and the API from a different origin, so a
+ * page load never touches this server and the CSRF cookie is never issued by
+ * one. Without a route that does it deliberately, a client's very first call to
+ * /auth/refresh arrives with no cookie and is rejected — on every cold start.
+ *
+ * GET is in csrfConfig.ignoredMethods, so this passes the check it bootstraps.
+ * The middleware has already put the value (existing or freshly minted) on
+ * req.csrfToken and the Set-Cookie on the response; this only returns it.
+ */
+router.get(
+  '/auth/csrf',
+  route(async (req, res) => {
+    noStore(res);
+    return { csrfToken: req.csrfToken };
+  }),
+);
+
+
+
 
 /* ------------------------------------------------------------------ *
  * Credentials
@@ -97,7 +135,6 @@ router.post(
 router.post(
   '/auth/refresh',
   rateLimit({ key: 'auth:refresh', points: 60, durationSec: 300, by: ['ip'] }),
-  csrfProtection,
   validate({ body: z.object({ refreshToken: z.string().min(1).optional() }).default({}) }),
   route(async (req, res) => {
     const presented = req.body.refreshToken ?? req.signedCookies?.[REFRESH_COOKIE];
@@ -128,10 +165,7 @@ router.post(
 );
 
 /** Every device, everywhere — the "I lost my phone" button. */
-router.post(
-  '/auth/logout-all',
-  requireAuth,
-  route(async (req, res) => {
+router.post('/auth/logout', route(async (req, res) => {
     const revoked = await AuthService.revokeAllSessions(req.user.id);
     res.clearCookie(REFRESH_COOKIE, { ...refreshCookieOptions(), maxAge: undefined });
     noStore(res);
