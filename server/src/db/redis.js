@@ -144,6 +144,14 @@ export async function ping({ timeoutMs = 2000 } = {}) {
   }
 }
 
+/** Verify Redis during process startup and fail fast when it is unreachable. */
+export async function verifyRedisConnection() {
+  const result = await ping({ timeoutMs: 10_000 });
+  if (!result.ok) {
+    throw new Error(`Redis connection failed: ${result.reason}`);
+  }
+}
+
 export async function closeRedis() {
   await Promise.allSettled(
     [...clients].map(async (client) => {

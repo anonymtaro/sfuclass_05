@@ -21,7 +21,7 @@
 import { runJob, isMain } from './_runJob.js';
 import * as SubscriptionService from '../billing/SubscriptionService.js';
 import * as EntitlementCache from '../billing/EntitlementCache.js';
-import { stripe } from '../billing/stripeClient.js';
+import { getStripe } from '../billing/stripeClient.js';
 import { metrics } from '../observability/metrics.js';
 
 const BATCH = 200;
@@ -29,6 +29,7 @@ const BATCH = 200;
 const GRACE_HOURS = 24;
 
 export async function checkExpiredSubscriptions({ log, clock, argv = {} } = {}) {
+  const stripe = await getStripe();
   const dryRun = Boolean(argv.dryRun);
   const summary = { checked: 0, downgraded: 0, restored: 0, stillPaid: 0, unreachable: 0, dryRun };
 

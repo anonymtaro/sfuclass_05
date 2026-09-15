@@ -34,8 +34,13 @@ const bootstrap = async () => {
   const { env, isProduction } = await import('./config/env.js');
 
   // 3. Tracing before the instrumented modules are loaded.
-  const { initTracing } = await import('./observability/tracing.js');
-  await initTracing({ serviceName: env.SERVICE_NAME, release: env.RELEASE_SHA });
+  // tracing.js exports the configured SDK rather than an init function;
+  // starting it is what installs the auto-instrumentation hooks, so it has to
+  // happen before pool.js, redis.js and express are imported below.
+  // Importing tracing.js is what starts the SDK — it calls sdk.start() at
+  // module load. Calling it again here binds the metric reader twice and
+  // throws, so the import is deliberately the entire statement.
+  await import('./observability/tracing.js');
 
   const { logger } = await import('./observability/logger.js');
   const log = logger.child({ component: 'bootstrap' });
@@ -70,6 +75,15 @@ const bootstrap = async () => {
   server.keepAliveTimeout = 65_000;
   server.headersTimeout = 70_000;
   server.requestTimeout = 120_000;
+
+  // Development runs the API and the SFU in one process, so the workers have
+  // to start here; in AWS they are separate services and mediasoup/index.js
+  // owns them instead. Without this, the first room join fails with no router.
+  if (!isProduction) {
+    const { startWorkers } = await import('./mediasoup/WorkerManager.js');
+    await startWorkers();
+    log.info('mediasoup workers running in-process (development)');
+  }
 
   const { attachSocketGateways } = await import('./realtime/index.js');
   const io = await attachSocketGateways(server, { redis });

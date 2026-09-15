@@ -35,7 +35,7 @@ import {
   entityId,
   paginated,
   richText,
-} from './common.schema.js';
+} from './common.schema.ts';
 
 // ---------------------------------------------------------------------------
 // Enumerations

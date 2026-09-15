@@ -24,7 +24,7 @@ import {
   IsoDateTimeSchema,
   UserIdSchema,
   displayText,
-} from '../zod/common.schema.js';
+} from '../zod/common.schema.ts';
 
 export const CLASSROOM_NAMESPACE = '/classroom' as const;
 
@@ -313,6 +313,13 @@ export const SIGNALING_SERVER_EVENTS = {
   /** Sent before a node drains, so clients reconnect rather than freeze. */
   nodeDraining: 'classroom:node.draining',
 } as const;
+
+export const SignalingEvents = Object.freeze({
+  CLASSROOM_NAMESPACE,
+  SIGNALING_CLIENT_EVENTS,
+  SIGNALING_SERVER_EVENTS,
+  MEDIA_SOURCES,
+});
 
 export type SignalingClientEvent =
   (typeof SIGNALING_CLIENT_EVENTS)[keyof typeof SIGNALING_CLIENT_EVENTS];

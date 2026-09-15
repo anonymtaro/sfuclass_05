@@ -23,6 +23,7 @@ import { z } from 'zod';
 import * as AuthService from '../identity/AuthService.js';
 import * as DeviceRegistry from '../identity/DeviceRegistry.js';
 import { env } from '../config/env.js';
+import { csrfProtection } from '../middleware/csrf.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import { route, validate, requireAuth, noStore, unauthorised } from './_helpers.js';
 
@@ -154,7 +155,7 @@ router.post(
 
 router.post(
   '/auth/logout',
-  csrfProtection,
+  csrfProtection(),
   route(async (req, res) => {
     const presented = req.body?.refreshToken ?? req.signedCookies?.[REFRESH_COOKIE];
     if (presented) await AuthService.revokeSession({ refreshToken: presented });

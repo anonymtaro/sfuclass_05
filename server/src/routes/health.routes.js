@@ -23,9 +23,7 @@
 import { Router } from 'express';
 
 import { env } from '../config/env.js';
-import { pool } from '../db/pool.js';
-import { redis } from '../db/redis.js';
-import { checkDependencies, startupState } from '../lifecycle/readiness.js';
+import { checkReadiness, checkStartup } from '../lifecycle/readiness.js';
 import { isDraining } from '../lifecycle/drainSfu.js';
 import * as sfuHealth from '../mediasoup/health.js';
 import { route, noStore } from './_helpers.js';
@@ -33,7 +31,6 @@ import { route, noStore } from './_helpers.js';
 const router = Router();
 
 const startedAt = Date.now();
-const READY_TIMEOUT_MS = 2000;
 
 /** Event loop lag, sampled cheaply. A blocked loop is the failure /healthz exists to catch. */
 let lagMs = 0;
@@ -81,19 +78,14 @@ router.get(
       return { ...base(), status: 'draining', checks: {} };
     }
 
-    const checks = await checkDependencies({ timeoutMs: READY_TIMEOUT_MS, pool, redis });
-    const ready = Object.values(checks).every((check) => check.ok);
+    const readiness = await checkReadiness({ force: true });
+    const ready = readiness.ok;
 
     res.status(ready ? 200 : 503);
     return {
       ...base(),
       status: ready ? 'ready' : 'not-ready',
-      checks: Object.fromEntries(
-        Object.entries(checks).map(([name, check]) => [
-          name,
-          { ok: check.ok, latencyMs: check.latencyMs, ...(check.ok ? {} : { reason: check.reason }) },
-        ]),
-      ),
+      checks: readiness.checks,
     };
   }),
 );
@@ -106,8 +98,8 @@ router.get(
   '/startupz',
   route(async (_req, res) => {
     noStore(res);
-    const state = startupState();
-    const done = state.configValidated && state.secretsLoaded && state.workersRegistered && state.migrationsChecked;
+    const state = checkStartup();
+    const done = state.ok;
     res.status(done ? 200 : 503);
     return { ...base(), status: done ? 'started' : 'starting', steps: state };
   }),

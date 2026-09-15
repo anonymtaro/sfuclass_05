@@ -159,6 +159,25 @@ export const notFound = (what = 'Resource') =>
 
 export const conflict = (detail) => new ApiError('conflict', { detail });
 
+export const badRequest = (detail, _meta) => new ApiError('malformed_request', { detail });
+
+export const tenantOf = (req) => req.user?.tenantId ?? req.context?.tenantId;
+
+export const q = (req) => req.validatedQuery ?? req.query ?? {};
+
+export const paging = (req, { defaultLimit = 20, maxLimit = 100 } = {}) => {
+  const query = q(req);
+  const requestedLimit = Number(query.limit ?? defaultLimit);
+  const limit = Number.isFinite(requestedLimit)
+    ? Math.min(Math.max(Math.trunc(requestedLimit), 1), maxLimit)
+    : defaultLimit;
+
+  return {
+    limit,
+    cursor: query.cursor ?? null,
+  };
+};
+
 /* ------------------------------------------------------------------ *
  * Response headers
  * ------------------------------------------------------------------ */
@@ -211,6 +230,10 @@ export default {
   forbidden,
   notFound,
   conflict,
+  badRequest,
+  tenantOf,
+  q,
+  paging,
   noStore,
   cacheFor,
   keysetPage,

@@ -7,6 +7,7 @@
     "lib": ["ES2023"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "allowImportingTsExtensions": true,
 
     // The server is plain JavaScript ESM, so this package has to emit real
     // .js next to its .d.ts. Nothing here is consumed as TypeScript source.

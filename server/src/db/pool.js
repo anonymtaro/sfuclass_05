@@ -138,6 +138,11 @@ export async function query(text, params, { client = pool } = {}) {
 
 export const readQuery = (text, params) => query(text, params, { client: readPool });
 
+/** Verify the primary connection during process startup. */
+export async function verifyDatabaseConnection() {
+  await pool.query({ text: 'select 1', query_timeout: Number(env.PG_CONNECT_TIMEOUT_MS ?? 5_000) });
+}
+
 /**
  * Run a function inside a transaction on one client. Rolls back on any throw, and always
  * releases — a leaked client is a connection gone for the life of the task.

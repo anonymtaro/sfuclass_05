@@ -25,7 +25,7 @@ import {
   IdempotencyKeySchema,
   IsoDateTimeSchema,
   UserIdSchema,
-} from '../zod/common.schema.js';
+} from '../zod/common.schema.ts';
 import {
   ChatTargetSchema,
   ChannelSchema,
@@ -34,8 +34,8 @@ import {
   MessageSchema,
   SendMessageSchema,
   UnreadSummarySchema,
-} from '../zod/chat.schema.js';
-import { PresenceStateSchema } from '../zod/profile.schema.js';
+} from '../zod/chat.schema.ts';
+import { PresenceStateSchema } from '../zod/profile.schema.ts';
 
 export const CHAT_NAMESPACE = '/chat' as const;
 

@@ -185,6 +185,28 @@ export async function currentVersion(client) {
   return rows[0]?.filename ?? null;
 }
 
+/** Refuse to start when the database is behind the migrations shipped with this release. */
+export async function assertSchemaCurrent() {
+  const client = new pg.Client({
+    connectionString: env.DATABASE_URL,
+    ssl: env.PGSSLMODE === 'disable' ? false : { rejectUnauthorized: env.PGSSLMODE !== 'no-verify' },
+    application_name: 'schema-check',
+    statement_timeout: Number(env.PG_QUERY_TIMEOUT_MS ?? 20_000),
+  });
+
+  await client.connect();
+  try {
+    const files = await listFiles();
+    const expected = files[files.length - 1] ?? null;
+    const actual = await currentVersion(client);
+    if (actual !== expected) {
+      throw new Error(`Database schema is out of date: expected ${expected ?? 'none'}, found ${actual ?? 'none'}`);
+    }
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
 const invokedDirectly = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
 
 if (invokedDirectly) {

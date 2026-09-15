@@ -19,7 +19,7 @@ import { z } from 'zod';
 import * as SubscriptionService from '../billing/SubscriptionService.js';
 import * as LimitResolver from '../billing/LimitResolver.js';
 import * as EntitlementCache from '../billing/EntitlementCache.js';
-import { stripe } from '../billing/stripeClient.js';
+import { constructEvent } from '../billing/stripeClient.js';
 import { handleStripeWebhook } from '../billing/webhooks/stripeWebhook.js';
 import { env } from '../config/env.js';
 import { route, validate, requireAuth, requireRole, tenantOf, noStore, badRequest } from './_helpers.js';
@@ -43,7 +43,7 @@ router.post(
 
     let event;
     try {
-      event = stripe.webhooks.constructEvent(req.body, signature, env.STRIPE_WEBHOOK_SECRET);
+      event = await constructEvent(req.body, signature);
     } catch (error) {
       // Never log the body here: it is a signed payload we could not verify.
       return res.status(400).send(`Signature verification failed: ${error.message}`);

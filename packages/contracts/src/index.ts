@@ -5,6 +5,25 @@
  * profile.schema.ts, media.schema.ts (F2, F3, F4, F6).
  */
 
+export * from './apiError.ts';
+export * from './zod/common.schema.ts';
+export * from './events/signaling.events.ts';
+export * as ChatEvents from './events/chat.events.ts';
+
+export const SOCKET_NAMESPACES = Object.freeze({
+  classroom: '/classroom',
+  chat: '/chat',
+} as const);
+
+export const HEADERS = Object.freeze({
+  contractVersion: 'x-contract-version',
+  csrfToken: 'x-csrf-token',
+  idempotencyKey: 'x-idempotency-key',
+  releaseSha: 'x-release-sha',
+  requestId: 'x-request-id',
+  traceId: 'x-trace-id',
+} as const);
+
 // ---- identity / profile (F6) ----
 export type UserRole = 'owner' | 'teacher' | 'learner';
 

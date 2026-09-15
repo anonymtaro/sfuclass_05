@@ -35,9 +35,9 @@ import {
   entityId,
   paginated,
   richText,
-} from './common.schema.js';
-import { AssetIdSchema, AssetSchema } from './media.schema.js';
-import { ReportReasonSchema } from './profile.schema.js';
+} from './common.schema.ts';
+import { AssetIdSchema, AssetSchema } from './media.schema.ts';
+import { ReportReasonSchema } from './profile.schema.ts';
 
 // ---------------------------------------------------------------------------
 // Limits — must match the CHAT_* variables in .env.example. config/env.js

@@ -44,7 +44,7 @@ import * as Reactions from '../classroom/interaction/Reactions.js';
 import { Peer } from '../classroom/Peer.js';
 import { createWebRtcTransport } from '../mediasoup/createWebRtcTransport.js';
 import { isDraining } from '../lifecycle/drainSfu.js';
-import { consumeSocketBudget } from '../realtime/socketRateLimit.js';
+import { consumeSocketBudget } from '../middleware/rateLimit.js';
 import * as CapacityGuard from '../capacity/CapacityGuard.js';
 import { env } from '../config/env.js';
 import { logger } from '../observability/logger.js';
@@ -147,8 +147,12 @@ function registerSocket(namespace, socket) {
       const startedAt = process.hrtime.bigint();
 
       try {
-        const allowed = await consumeSocketBudget(socket, event, cost);
-        if (!allowed) fail('rate_limited', 'Too many signalling events');
+        const budget = await consumeSocketBudget({
+          socketId: socket.id,
+          userId: socket.data.userId ?? socket.data.session?.userId,
+          event,
+        });
+        if (!budget.allowed) fail('rate_limited', 'Too many signalling events');
 
         const session = socket.data.session ?? null;
         if (joined && !session) fail('not_in_room', 'Join a room first');

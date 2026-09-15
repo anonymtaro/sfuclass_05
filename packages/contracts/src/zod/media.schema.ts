@@ -29,7 +29,7 @@ import {
   displayText,
   entityId,
   paginated,
-} from './common.schema.js';
+} from './common.schema.ts';
 
 // ---------------------------------------------------------------------------
 // Identifiers and enumerations
