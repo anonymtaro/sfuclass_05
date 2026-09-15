@@ -22,13 +22,15 @@
  *   6. raw webhooks     before the JSON parser, because signatures are computed
  *                       over exact bytes
  *   7. JSON parsing     with a small limit; files never travel through the API
- *   8. rate limits      after identification, so a signed-in user is limited as
+ *   8. cookies          after parsing, before the routes that read them
+ *   9. rate limits      after identification, so a signed-in user is limited as
  *                       a user rather than as an IP
- *   9. routes
- *  10. notFound, errorHandler   last, in that order
+ *  10. routes
+ *  11. notFound, errorHandler   last, in that order
  */
 
 import express from 'express';
+import cookieParser from 'cookie-parser';
 import { env, isProduction } from './config/env.js';
 
 import { requestContext } from './middleware/requestContext.js';
@@ -52,8 +54,7 @@ import communityRoutes from './routes/community.routes.js';
 import mediaRoutes from './routes/media.routes.js';
 import assignmentRoutes from './routes/assignment.routes.js';
 import messagingRoutes from './routes/messaging.routes.js';
-import profileRoutes from './routes/profile.routes.js'; 
-import cookieParser from 'cookie-parser';
+import profileRoutes from './routes/profile.routes.js';
 
 export const createApp = () => {
   const app = express();
@@ -105,18 +106,27 @@ export const createApp = () => {
   // caps. Files never travel through the API.
   app.use(bodyParsers());
 
+  // -------------------------------------------------------------------------
+  // 8. Cookies
+  // -------------------------------------------------------------------------
+  // auth.routes.js writes the refresh token with `signed: true` and reads it
+  // back from req.signedCookies, which does not exist without this. Symptom
+  // when it is missing: every refresh answers "No refresh token presented",
+  // so a reload always signs the user out.
   app.use(cookieParser(env.COOKIE_SECRET));
 
   // -------------------------------------------------------------------------
-  // 8. Abuse controls
+  // 9. Abuse controls
   // -------------------------------------------------------------------------
   app.use(rateLimit());
   // Scoped to the cookie-authenticated routes; the bearer-token API does not
-  // need it and would only pay the cost.
+  // need it and would only pay the cost. Called, not passed — the export is a
+  // factory, and handing Express the factory itself hangs every request it
+  // guards.
   app.use(csrfProtection());
 
   // -------------------------------------------------------------------------
-  // 9. Routes
+  // 10. Routes
   // -------------------------------------------------------------------------
   app.use('/auth', authRoutes);
   app.use('/profiles', profileRoutes);
@@ -137,7 +147,7 @@ export const createApp = () => {
   });
 
   // -------------------------------------------------------------------------
-  // 10. Fallbacks
+  // 11. Fallbacks
   // -------------------------------------------------------------------------
   app.use(notFound());
   app.use(errorHandler({ exposeStack: !isProduction }));

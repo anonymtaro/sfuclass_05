@@ -29,9 +29,9 @@ import {
   entityId,
   paginated,
   richText,
-} from './common.schema.js';
-import { AssetIdSchema, AssetRefSchema } from './media.schema.js';
-import { ReportReasonSchema } from './profile.schema.js';
+} from './common.schema.ts';
+import { AssetIdSchema, AssetRefSchema } from './media.schema.ts';
+import { ReportReasonSchema } from './profile.schema.ts';
 
 // ---------------------------------------------------------------------------
 // Identifiers

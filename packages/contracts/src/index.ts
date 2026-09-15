@@ -1,20 +1,80 @@
 /**
  * packages/contracts/src/index.ts
- * Single source of truth for shapes shared between server, web and mobile.
- * Mirrors: course.schema.ts, community.schema.ts, chat.schema.ts,
- * profile.schema.ts, media.schema.ts (F2, F3, F4, F6).
+ *
+ * The single source of truth for every shape crossing a process boundary:
+ * server to web, server to mobile, and the WebSocket surface between them.
+ *
+ * Two export styles, and the split is deliberate:
+ *
+ *   Namespaced   the domain schemas. `Course.LessonSchema` and
+ *                `Media.AssetSchema` are unambiguous; a flat export of both
+ *                would collide on `Status`, `Metadata` and half a dozen other
+ *                names that every domain legitimately wants.
+ *
+ *   Flat         ApiError, HEADERS, CONTRACT_VERSION and the common primitives.
+ *                These are used as values in hot paths — httpClient constructs
+ *                an ApiError on every failed request — and `Common.ApiError`
+ *                would be noise in exchange for nothing.
+ *
+ * The schema files themselves own the types. This file re-exports and adds
+ * nothing: a type written here rather than in a schema is a type with no
+ * runtime validator behind it, which is how a contract quietly stops being one.
  */
+
+// ---------------------------------------------------------------------------
+// Flat: errors and primitives
+// ---------------------------------------------------------------------------
 
 export * from './apiError.ts';
 export * from './zod/common.schema.ts';
-export * from './events/signaling.events.ts';
-export * as ChatEvents from './events/chat.events.ts';
 
+// ---------------------------------------------------------------------------
+// Namespaced: domain schemas
+// ---------------------------------------------------------------------------
+
+export * as Assignment from './zod/assignment.schema.ts';
+export * as Billing from './zod/billing.schema.ts';
+export * as Chat from './zod/chat.schema.ts';
+export * as Community from './zod/community.schema.ts';
+export * as Course from './zod/course.schema.ts';
+export * as Media from './zod/media.schema.ts';
+export * as Profile from './zod/profile.schema.ts';
+
+// ---------------------------------------------------------------------------
+// Namespaced: socket events
+// ---------------------------------------------------------------------------
+
+/**
+ * SignalingEvents is namespaced rather than flat because it is addressed that
+ * way everywhere it matters — SfuClient reads SIGNALING_CLIENT_EVENTS off it,
+ * and server/src/signaling/socketHandlers.js destructures the same constant.
+ * Keeping the namespace is what lets the contract test compare the two.
+ */
+export * as SignalingEvents from './events/signaling.events.ts';
+export * as ChatEvents from './events/chat.events.ts';
+export * as CommunityEvents from './events/community.events.ts';
+export * as MediaEvents from './events/media.events.ts';
+
+// ---------------------------------------------------------------------------
+// Transport constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Namespaces are per-concern, not per-feature: the classroom connection dies
+ * when a lesson ends, the chat connection lives as long as the session, and
+ * one socket carrying both would tie their lifecycles together.
+ */
 export const SOCKET_NAMESPACES = Object.freeze({
   classroom: '/classroom',
   chat: '/chat',
+  community: '/community',
 } as const);
 
+/**
+ * Header names, written once. httpClient sets them on every request and the
+ * server middleware reads them back; a literal on either side is a typo
+ * waiting for production.
+ */
 export const HEADERS = Object.freeze({
   contractVersion: 'x-contract-version',
   csrfToken: 'x-csrf-token',
@@ -24,164 +84,13 @@ export const HEADERS = Object.freeze({
   traceId: 'x-trace-id',
 } as const);
 
-// ---- identity / profile (F6) ----
-export type UserRole = 'owner' | 'teacher' | 'learner';
-
-export interface Profile {
-  userId: string;
-  displayName: string;
-  avatarUrl?: string;
-  bio?: string;
-  role: UserRole;
-  dmPolicy: 'anyone' | 'shared-context' | 'nobody';
-}
-
-// ---- messaging (F6) ----
-export type ChannelScope = 'public' | 'space' | 'course';
-
-export interface Channel {
-  id: string;
-  scope: ChannelScope;
-  title: string;
-  contextId?: string; // spaceId or courseId when scope !== 'public'
-}
-
-export interface Conversation {
-  id: string;
-  participantIds: string[];
-  isGroup: boolean;
-  lastMessagePreview?: string;
-  lastMessageAt?: string;
-  unreadCount: number;
-}
-
-export interface MessageAttachment {
-  id: string;
-  assetId: string;
-  fileName: string;
-  mimeType: string;
-  sizeBytes: number;
-  previewUrl?: string; // signed CloudFront URL, short TTL
-  downloadUrl?: string;
-}
-
-export interface Message {
-  id: string;
-  conversationId?: string; // set for DMs/groups
-  channelId?: string; // set for public/space/course channels
-  senderId: string;
-  body: string;
-  attachments: MessageAttachment[];
-  createdAt: string;
-  editedAt?: string;
-  deletedAt?: string;
-  dedupeKey: string; // client-generated, for at-least-once delivery
-}
-
-export type TypingEvent = { conversationOrChannelId: string; userId: string };
-
-// ---- courses (F3) ----
-export type LessonType = 'live' | 'video' | 'doc' | 'quiz' | 'task';
-
-export interface Lesson {
-  id: string;
-  moduleId: string;
-  title: string;
-  type: LessonType;
-  liveRoomId?: string; // set when type === 'live', links to classroom Room (F1,F3)
-  videoAssetId?: string;
-  durationSeconds?: number;
-  completed: boolean;
-}
-
-export interface CourseModule {
-  id: string;
-  courseId: string;
-  title: string;
-  lessons: Lesson[];
-}
-
-export interface Course {
-  id: string;
-  title: string;
-  description: string;
-  coverImageUrl?: string;
-  modules: CourseModule[];
-  progressPercent: number;
-  certificateUrl?: string;
-}
-
-// ---- community (F2) ----
-export interface Space {
-  id: string;
-  title: string;
-  courseId?: string;
-}
-
-export interface Post {
-  id: string;
-  threadId: string;
-  authorId: string;
-  body: string;
-  createdAt: string;
-  reactionCount: number;
-}
-
-export interface Thread {
-  id: string;
-  spaceId: string;
-  title: string;
-  postCount: number;
-  lastActivityAt: string;
-}
-
-// ---- media (F4) ----
-export type AssetStatus = 'uploading' | 'processing' | 'ready' | 'failed';
-
-export interface Asset {
-  id: string;
-  status: AssetStatus;
-  kind: 'image' | 'video' | 'document' | 'other';
-  fileName: string;
-  sizeBytes: number;
-  hlsUrl?: string;
-  captionsUrl?: string;
-  downloadUrl?: string;
-}
-
-export interface DownloadedLesson {
-  lessonId: string;
-  courseId: string;
-  title: string;
-  localUri: string;
-  sizeBytes: number;
-  downloadedAt: string;
-}
-
-// ---- presence (shared F2/F6) ----
-export type PresenceStatus = 'online' | 'away' | 'in-class' | 'offline';
-export interface PresenceEntry {
-  userId: string;
-  status: PresenceStatus;
-  updatedAt: string;
-}
-
-// ---- classroom (F1) ----
-export interface Peer {
-  id: string;
-  displayName: string;
-  role: UserRole;
-  isSpeaking: boolean;
-  hasCam: boolean;
-  hasMic: boolean;
-  isScreenSharing: boolean;
-}
-
-export interface ClassroomState {
-  roomId: string;
-  lessonId?: string;
-  peers: Peer[];
-  localPeerId: string;
-  activeScreenShareePeerId?: string;
-  connectionState: 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
-}
+/**
+ * The envelope every socket acknowledgement uses.
+ *
+ * Unwrapping it in socketClient means callers deal in values and exceptions
+ * rather than in envelopes, and it is why a handler can never succeed silently
+ * or fail silently — there is no third shape.
+ */
+export type SocketAck<TData = unknown> =
+  | { ok: true; data: TData }
+  | { ok: false; error: { code: string; message: string; traceId?: string } };

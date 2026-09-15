@@ -20,14 +20,14 @@
  */
 
 import { z } from 'zod';
-import { IsoDateTimeSchema, MetadataSchema, UserIdSchema } from '../zod/common.schema.js';
+import { IsoDateTimeSchema, MetadataSchema, UserIdSchema } from '../zod/common.schema.ts';
 import {
   AssetIdSchema,
   AssetKindSchema,
   AssetPurposeSchema,
   AssetStatusSchema,
   UploadIdSchema,
-} from '../zod/media.schema.js';
+} from '../zod/media.schema.ts';
 
 export const MEDIA_NAMESPACE = '/media' as const;
 

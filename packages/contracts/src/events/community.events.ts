@@ -15,14 +15,14 @@
  */
 
 import { z } from 'zod';
-import { ActorRefSchema, IsoDateTimeSchema, UserIdSchema } from '../zod/common.schema.js';
+import { ActorRefSchema, IsoDateTimeSchema, UserIdSchema } from '../zod/common.schema.ts';
 import {
   NotificationSchema,
   PostIdSchema,
   SpaceIdSchema,
   ThreadIdSchema,
-} from '../zod/community.schema.js';
-import { PresenceStateSchema } from '../zod/profile.schema.js';
+} from '../zod/community.schema.ts';
+import { PresenceStateSchema } from '../zod/profile.schema.ts';
 
 export const COMMUNITY_NAMESPACE = '/community' as const;
 
